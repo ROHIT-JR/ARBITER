@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use ARBITER in your research, please cite it as below."
+title: "ARBITER: Unified attack attribution for teleportation-based quantum digital signatures"
+type: software
+authors:
+  - name: "Team F0rg3d (SIH26-A0H-T043)"
+version: 0.1.0
+license: Apache-2.0
+repository-code: "https://github.com/ROHIT-JR/ARBITER"
+abstract: >-
+  A simulation and detection framework for teleportation-based quantum digital
+  signatures. A single Neyman-Pearson generalized likelihood-ratio test, with
+  likelihoods derived from density-matrix models and cross-checked against Qiskit
+  circuits, detects and attributes forgery, impersonation, replay and
+  quantum-channel manipulation. It is complemented by an anytime-valid sequential
+  test, a CHSH channel-integrity check, quantum Chernoff performance bounds, and a
+  hash-chained audit ledger dual-signed with ML-DSA-65 and a Merkle-Lamport
+  hash-based signature. Developed for Smart India Hackathon 2026, PS 26141
+  (Egreen Quanta).
+keywords:
+  - quantum digital signatures
+  - quantum teleportation
+  - hypothesis testing
+  - quantum Chernoff bound
+  - CHSH
+  - post-quantum cryptography
+  - Qiskit
