@@ -1,2 +1,148 @@
 # ARBITER
-Unified, information-theoretically optimal attack-attribution engine for teleportation-based Quantum Digital Signatures — Neyman-Pearson/quantum-Chernoff-bound detection, CHSH channel integrity, adaptive thresholding, and a blockchain-anchored dual-signed audit trail. Built for SIH 2026 PS 26141.
+
+[![CI](https://github.com/ROHIT-JR/ARBITER/actions/workflows/ci.yml/badge.svg)](https://github.com/ROHIT-JR/ARBITER/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+![Python 3.10–3.13](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue.svg)
+
+**Unified attack attribution for teleportation-based Quantum Digital Signatures.**
+
+ARBITER simulates a teleportation-based QDS session (Bell pairs, Bell measurement, Pauli correction, projective Pauli verification) and detects **forgery, impersonation, replay and quantum-channel manipulation** with a *single* statistical test. It doesn't stop at accept or reject: it also names the attack. Every verdict goes into a hash-chained audit ledger, signed twice with post-quantum signatures. The system uses no machine learning anywhere, only Born-rule likelihoods and hypothesis testing.
+
+Built for **Smart India Hackathon 2026, Problem Statement 26141** (set by [Egreen Quanta](https://www.egreenquanta.com/)) by Team **F0rg3d** (SIH26-A0H-T043).
+
+## What's different
+
+| | Typical approach | ARBITER |
+|---|---|---|
+| Decision rule | Four independent, hand-set thresholds | One level-α generalized likelihood-ratio test over all attacks (Neyman–Pearson) |
+| Output | accept / reject | accept / reject **plus** a maximum-likelihood attack attribution and strength estimate |
+| Sample size | Fixed | Anytime-valid sequential test: raises the alarm after ~6–16 rounds for full-strength attacks |
+| Channel check | Error rate only | CHSH Bell test (S < 2 means no entanglement survived) |
+| Where the likelihoods come from | Tuned constants | Density matrices, including an explicit teleportation map, cross-checked against Qiskit circuits |
+| Noise | Generic depolarizing | Trapped-ion error budget (MS gate, T₂ dephasing, heating, SPAM) → channel parameters |
+| How good is it? | Not stated | Compared against Helstrom / quantum-Chernoff limits |
+| Audit | – | SHA3-512 hash chain, each entry signed with **ML-DSA-65 and** a Merkle-Lamport hash-based signature |
+
+## Results
+
+From `python examples/attack_sweep.py --sessions 200`: 1200 rounds per session, α = 0.01, visibility 0.92. Rows are the true hypothesis, columns are ARBITER's attribution, and the last two columns are the sequential test's median alarm and attribution rounds.
+
+**Full-strength attacks (θ = 1):**
+
+| true ↓ / attributed → | legit | forgery | imperson. | replay | channel | alarm | attributed |
+|---|---|---|---|---|---|---|---|
+| legitimate | **0.99** | 0 | 0 | 0.01 | 0.01 | – | – |
+| forgery | 0 | **1.00** | 0 | 0 | 0 | 13 | 45 |
+| impersonation | 0 | 0 | **1.00** | 0 | 0 | 7 | 46 |
+| replay | 0 | 0 | 0 | **1.00** | 0 | 16 | 59 |
+| channel manipulation | 0 | 0 | 0 | 0 | **1.00** | 13 | 116 |
+
+**Partial attacks:** the diagonal is 1.00 at θ = 0.3 and 0.81–0.92 at θ = 0.1. At θ = 0.1 only 10% of rounds are attacked, so these are deliberately weak attacks. The legitimate false-alarm rate stays at the 1–2% implied by α plus the CHSH flag.
+
+**The limits of what any detector could do:**
+
+| attack | quantum Chernoff ξ_Q | ARBITER's measurement ξ_M | efficiency |
+|---|---|---|---|
+| forgery | 0.0885 | 0.0885 | **1.00** (the PS's projective Pauli measurement is Helstrom-optimal) |
+| impersonation | 0.227 | 0.154 | 0.68 |
+| replay | 0.132 | 0.064 | 0.49 |
+| channel manipulation | 0.114 | 0.080 | 0.70 |
+
+Efficiencies below 1 come from the fixed CHSH settings. That gap is the most concrete open item for the next version.
+
+## Quickstart
+
+```bash
+git clone https://github.com/ROHIT-JR/ARBITER && cd ARBITER
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+pytest                                   # full suite, ~20 s
+python examples/attack_sweep.py          # the tables above
+uvicorn --factory arbiter.api.app:create_app --port 8000   # API; open http://127.0.0.1:8000/docs
+```
+
+**Dashboard** (in a second terminal):
+
+```bash
+cd frontend && npm install && npm run dev   # http://localhost:5173
+```
+
+**Notebook:** [notebooks/arbiter_demo.ipynb](notebooks/arbiter_demo.ipynb) is committed with its outputs, so you can read it on GitHub. Rebuild it with `python notebooks/build_demo.py`.
+
+**From Python:**
+
+```python
+from arbiter.pipeline import Arbiter
+from arbiter.qds_simulation import Hypothesis, simulate_session
+
+t = simulate_session(Hypothesis.REPLAY, theta=1.0, seed=7, backend="qiskit")  # real Aer circuits
+v = Arbiter().verify(t)
+print(v.decision, v.attribution.value)  # REJECT replay
+print(v.reasons)
+```
+
+### API
+
+| endpoint | purpose |
+|---|---|
+| `POST /sessions` | simulate a session `{hypothesis, theta, n_rounds, backend, seed, trajectory}` and return the full layered verdict. The verdict is written to the ledger |
+| `POST /sessions/{id}/resubmit` | replay a transcript verbatim, which the nonce registry catches |
+| `GET /model` | each hypothesis's per-cell outcome probabilities |
+| `GET /bounds` | Helstrom / quantum-Chernoff limits against the achieved exponents |
+| `GET /ledger`, `/ledger/{i}`, `/ledger/verify` | inspect and verify the audit chain |
+| `GET /noise/presets` | trapped-ion presets and the channel parameters they induce |
+| `POST /pki/assess`, `/pki/assess-key` | quantum-risk score for certificates (PEM) or single keys |
+
+Two environment variables configure the service:
+
+- `ARBITER_DATA_DIR`: where the ledger keys and the ledger live. The default is `./.arbiter`.
+- `ARBITER_NOISE_PRESET`: calibrates the legitimate channel from a trapped-ion preset (`state_of_the_art_2025`, `prototype` or `conservative`).
+
+## Repository layout
+
+```
+src/arbiter/
+  quantum/            states, channels, trace distance, Helstrom, quantum Chernoff, min-error POVM SDP
+  qds_simulation/     physical model, Qiskit circuits, session simulator
+  detection/          unified GLRT, sequential e-process, CHSH, freshness, bounds
+  audit_ledger/       hash chain + ML-DSA-65 + Merkle-Lamport
+  noise/              trapped-ion error budget → channel parameters
+  pki_risk_scoring/   X.509 parsing, Shor resource estimates, Mosca's inequality
+  api/                FastAPI service
+  pipeline.py         all layers → verdict → ledger
+  qrng.py             Hadamard-measurement QRNG (simulated)
+frontend/             React + TypeScript dashboard (Vite)
+notebooks/            executed walkthrough + the script that builds it
+examples/             attack sweep
+docs/                 threat model, math derivations, architecture, noise model, PKI scoring
+tests/                per-attack fixtures, circuit/model agreement, false-alarm control,
+                      ledger tampering, noise identities, PKI, API
+```
+
+## Honest scope
+
+- **Simulation only.** On Aer, the QRNG and the quantum channel are models. The circuits are hardware-ready, but nothing has been run on a device yet.
+- **"Optimal" means optimal relative to the model** in [docs/threat-model.md](docs/threat-model.md). That covers i.i.d. individual/collective attacks with a known legitimate visibility. Detector blinding, PNS, Trojan-horse and side-channel attacks are out of scope, and the threat model names them.
+- **Partial impersonation is indistinguishable from channel manipulation.** Both are depolarizing, and no detector could separate them with these observables. Impersonation is therefore modelled as all-or-nothing.
+- **The trapped-ion model is a twirled Pauli error budget.** It does not capture coherent or correlated errors. See [docs/ion-trap-noise-model.md](docs/ion-trap-noise-model.md).
+
+## Roadmap
+
+| version | scope |
+|---|---|
+| **v0.1** (this) | QDS simulation (analytic + Qiskit), unified GLRT, sequential test, CHSH, freshness, bounds, dual-signed ledger, trapped-ion error budget, PKI risk scoring, API, dashboard, notebook, CI |
+| v0.2 | optimized CHSH-round measurements (close the efficiency gap), estimating the channel visibility per session as a nuisance parameter, ledger key rotation |
+| v0.3 | coherent and correlated trapped-ion errors, hybrid-certificate support in PKI scoring, robust tests against adaptive attacks |
+| v1.0 | calibration against real trapped-ion hardware data (collaborators welcome), technical report |
+
+## Contributing, security and citing
+
+- **Contributing:** see [CONTRIBUTING.md](CONTRIBUTING.md). We especially welcome anyone working on trapped-ion hardware who can check the noise model against real data.
+- **Security:** see [SECURITY.md](SECURITY.md) for how to report issues privately.
+- **Citing:** if you use ARBITER in research, please cite it using [CITATION.cff](CITATION.cff).
+
+## Acknowledgements
+
+The problem statement is SIH 2026 PS 26141, set by **Egreen Quanta**. The protocol builds on Zeng & Keitel (2002), Wallden et al. (2015) and Amiri et al. (2016). The detection theory builds on Helstrom (1976), Audenaert et al. (2007) and Ville (1939). Details are in [docs/math-derivations.md](docs/math-derivations.md).
+
+Licensed under [Apache-2.0](LICENSE).

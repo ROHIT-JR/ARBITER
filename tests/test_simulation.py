@@ -1,0 +1,110 @@
+import numpy as np
+import pytest
+
+from arbiter.qds_simulation import (
+    ATTACKS,
+    ChannelParams,
+    Hypothesis,
+    RoundType,
+    SessionConfig,
+    cell_probabilities,
+    expected_chsh,
+    simulate_session,
+)
+from arbiter.qds_simulation.model import mismatch_probability, received_state
+from arbiter.qds_simulation.protocol import derive_labels
+from arbiter.quantum.states import ALL_LABELS
+
+PARAMS = ChannelParams()
+
+
+def test_legitimate_statistics():
+    p = cell_probabilities(Hypothesis.LEGITIMATE, 0, PARAMS)
+    assert p[0] == pytest.approx((1 - PARAMS.visibility) / 2)
+    assert expected_chsh(Hypothesis.LEGITIMATE, 0, PARAMS) == pytest.approx(2 * np.sqrt(2) * PARAMS.visibility)
+
+
+def test_attack_fingerprints():
+    """Each attack moves a different combination of observables."""
+    legit = cell_probabilities(Hypothesis.LEGITIMATE, 0, PARAMS)
+    forg = cell_probabilities(Hypothesis.FORGERY, 1, PARAMS)
+    rep = cell_probabilities(Hypothesis.REPLAY, 1, PARAMS)
+    imp = cell_probabilities(Hypothesis.IMPERSONATION, 1, PARAMS)
+    chan = cell_probabilities(Hypothesis.CHANNEL_MANIPULATION, 1, PARAMS)
+    assert forg[0] == pytest.approx(0.5) and forg[1] == pytest.approx(legit[1])
+    assert np.allclose(forg[2:], legit[2:])
+    assert rep[1] == pytest.approx(0.5) and legit[0] < rep[0] < 0.2
+    assert np.allclose(imp, 0.5)
+    assert chan[0] == pytest.approx(chan[1]) and chan[0] < 0.5
+    # intercept-resend destroys the Bell violation
+    assert expected_chsh(Hypothesis.CHANNEL_MANIPULATION, 1, PARAMS) < 2
+
+
+@pytest.mark.parametrize("h", list(Hypothesis))
+@pytest.mark.parametrize("rt", [RoundType.SIGNATURE, RoundType.FRESHNESS])
+def test_model_is_label_symmetric(h, rt):
+    probs = [mismatch_probability(received_state(h, rt, lab, PARAMS), lab) for lab in ALL_LABELS]
+    assert np.allclose(probs, probs[0])
+
+
+def test_forger_best_guess_is_coin_flip():
+    """Any fixed forged state mismatches a uniformly random Pauli key half the time."""
+    from arbiter.quantum.states import pauli_state
+
+    for guess in ALL_LABELS:
+        rho = pauli_state(guess)
+        errs = [mismatch_probability(rho, key) for key in ALL_LABELS]
+        assert np.mean(errs) == pytest.approx(0.5)
+
+
+def test_label_prf_is_deterministic_and_uniform():
+    a = derive_labels(b"k", b"ctx", 60000)
+    assert np.array_equal(a, derive_labels(b"k", b"ctx", 60000))
+    assert not np.array_equal(a[:100], derive_labels(b"k", b"other", 100))
+    freq = np.bincount(a, minlength=6) / len(a)
+    assert np.allclose(freq, 1 / 6, atol=0.01)
+
+
+def test_session_is_reproducible_and_counts_add_up():
+    a = simulate_session(Hypothesis.FORGERY, 0.5, seed=7)
+    b = simulate_session(Hypothesis.FORGERY, 0.5, seed=7)
+    assert a.nonce == b.nonce and np.array_equal(a.outcomes, b.outcomes)
+    n, k = a.counts()
+    assert n.sum() == 1200 and np.all(k <= n)
+    assert simulate_session(seed=8).nonce != a.nonce
+
+
+def test_same_seed_different_scenarios_get_distinct_nonces():
+    nonces = {simulate_session(h, seed=42).nonce for h in Hypothesis}
+    assert len(nonces) == len(Hypothesis)
+    assert (
+        simulate_session(Hypothesis.FORGERY, 0.3, seed=42).nonce
+        != simulate_session(Hypothesis.FORGERY, 0.4, seed=42).nonce
+    )
+
+
+def test_impersonation_is_all_or_nothing():
+    assert simulate_session(Hypothesis.IMPERSONATION, 0.2, seed=1).theta == 1.0
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("h", list(Hypothesis))
+def test_qiskit_circuits_match_density_matrix_model(h):
+    """The Aer circuits (Bell pairs, Bell measurement, if_test Pauli correction,
+    attack operations) reproduce the Born-rule model the detector uses."""
+    config = SessionConfig(n_rounds=12000)
+    t = simulate_session(h, 1.0, config, seed=11, backend="qiskit")
+    n, k = t.counts()
+    p = cell_probabilities(h, 1.0, config.params)
+    z = (k / n - p) / np.sqrt(p * (1 - p) / n)
+    assert np.all(np.abs(z) < 4.5), z
+
+
+@pytest.mark.parametrize("h", ATTACKS)
+def test_analytic_sampler_matches_model(h):
+    config = SessionConfig(n_rounds=40000)
+    t = simulate_session(h, 0.6, config, seed=3)
+    n, k = t.counts()
+    theta = 1.0 if h is Hypothesis.IMPERSONATION else 0.6
+    p = cell_probabilities(h, theta, config.params)
+    assert np.all(np.abs((k / n - p) / np.sqrt(p * (1 - p) / n)) < 4.5)

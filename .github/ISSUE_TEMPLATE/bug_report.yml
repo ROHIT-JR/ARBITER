@@ -1,0 +1,26 @@
+name: Bug report
+description: Something produces a wrong verdict, crashes, or disagrees with the docs
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Include the exact call or API request, and the seed if you used one.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: ARBITER version / commit
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module
+      options: [detection-core, qds-simulation, noise-model, audit-ledger, pki-bridge, api, dashboard, docs]

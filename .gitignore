@@ -216,3 +216,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ARBITER runtime state (ledger keys, ledger)
+.arbiter/
+
