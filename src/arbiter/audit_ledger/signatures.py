@@ -18,8 +18,8 @@ import base64
 import hashlib
 from dataclasses import dataclass
 
-_N = 32          # hash output bytes
-_BITS = 256      # signed digest bits
+_N = 32  # hash output bytes
+_BITS = 256  # signed digest bits
 
 
 def _h(data: bytes) -> bytes:
@@ -35,6 +35,7 @@ def _unb64(s: str) -> bytes:
 
 
 # --- ML-DSA ---------------------------------------------------------------
+
 
 class MLDSA:
     """ML-DSA-65 keypair with a backend-agnostic interface."""
@@ -114,10 +115,11 @@ def _mldsa_backend():
 
 # --- Merkle-Lamport -------------------------------------------------------
 
+
 @dataclass
 class HashSignature:
     leaf: int
-    reveal: list[bytes]       # sk[j][bit_j] for each digest bit j
+    reveal: list[bytes]  # sk[j][bit_j] for each digest bit j
     counterpart: list[bytes]  # pk[j][1 - bit_j], so the verifier can rebuild the leaf
     auth_path: list[bytes]
 
@@ -130,9 +132,13 @@ class HashSignature:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "HashSignature":
-        return cls(d["leaf"], _chunks(_unb64(d["reveal"])), _chunks(_unb64(d["counterpart"])),
-                   [bytes.fromhex(a) for a in d["auth_path"]])
+    def from_dict(cls, d: dict) -> HashSignature:
+        return cls(
+            d["leaf"],
+            _chunks(_unb64(d["reveal"])),
+            _chunks(_unb64(d["counterpart"])),
+            [bytes.fromhex(a) for a in d["auth_path"]],
+        )
 
 
 def _chunks(b: bytes) -> list[bytes]:

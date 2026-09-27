@@ -74,6 +74,15 @@ def test_session_is_reproducible_and_counts_add_up():
     assert simulate_session(seed=8).nonce != a.nonce
 
 
+def test_same_seed_different_scenarios_get_distinct_nonces():
+    nonces = {simulate_session(h, seed=42).nonce for h in Hypothesis}
+    assert len(nonces) == len(Hypothesis)
+    assert (
+        simulate_session(Hypothesis.FORGERY, 0.3, seed=42).nonce
+        != simulate_session(Hypothesis.FORGERY, 0.4, seed=42).nonce
+    )
+
+
 def test_impersonation_is_all_or_nothing():
     assert simulate_session(Hypothesis.IMPERSONATION, 0.2, seed=1).theta == 1.0
 

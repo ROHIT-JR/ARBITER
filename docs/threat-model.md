@@ -44,10 +44,10 @@ A verbatim resubmission of an old transcript (a classical replay) is caught sepa
 | Trojan horse, timing and power side channels | Physical layer | Optical isolation, constant-time hardware |
 | Fully coherent attacks, asymptotic regime | Still an open research frontier | De Finetti reductions |
 | Adaptive, round-correlated attacks | Break the i.i.d. per-round assumption behind the likelihoods | Future work: robust / minimax tests |
-| Miscalibrated `v` | The detector assumes the legitimate visibility is known | Periodic recalibration (a trapped-ion noise model is on the roadmap) |
+| Miscalibrated `v` | The detector assumes the legitimate visibility is known | Periodic recalibration. `arbiter.noise` derives `v` from hardware figures. Per-session estimation is on the roadmap |
 
 ## Future work that follows directly from this model
 
 - Optimize the CHSH-round measurement: the SDP in `arbiter.quantum.info.optimal_povm` gives the target.
 - Adaptive per-session estimation of `v` as a nuisance parameter.
-- A trapped-ion noise model (motional heating, laser phase noise, Raman scattering) replacing plain depolarizing noise.
+- Extending the trapped-ion error budget ([ion-trap-noise-model.md](ion-trap-noise-model.md)) to coherent and correlated errors.

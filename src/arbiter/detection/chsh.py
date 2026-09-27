@@ -20,12 +20,12 @@ from arbiter.qds_simulation.protocol import Transcript
 @dataclass
 class ChshResult:
     S: float
-    half_width: float           # (1 - delta) confidence half-width
+    half_width: float  # (1 - delta) confidence half-width
     delta: float
     threshold: float
     n_per_setting: list[int]
-    certified: bool             # S - half_width > 2: Bell violation certified
-    flagged: bool               # S < threshold: channel integrity compromised
+    certified: bool  # S - half_width > 2: Bell violation certified
+    flagged: bool  # S < threshold: channel integrity compromised
 
     def to_dict(self) -> dict:
         return {

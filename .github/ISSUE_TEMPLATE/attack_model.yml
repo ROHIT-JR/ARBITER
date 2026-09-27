@@ -1,0 +1,29 @@
+name: New attack model
+description: Propose an adversary ARBITER should detect or attribute
+labels: [detection-core]
+body:
+  - type: textarea
+    id: capability
+    attributes:
+      label: Adversary capabilities
+      description: What does the attacker hold or control (key, entanglement, channel, memory)?
+    validations:
+      required: true
+  - type: textarea
+    id: state
+    attributes:
+      label: Per-round state it induces
+      description: The density matrix (or channel) on signature, freshness and CHSH rounds.
+    validations:
+      required: true
+  - type: textarea
+    id: identifiability
+    attributes:
+      label: Identifiability
+      description: Which observables it moves, and whether it can be told apart from the existing hypotheses. If it can't, which new round type would help?
+    validations:
+      required: true
+  - type: textarea
+    id: refs
+    attributes:
+      label: References

@@ -28,12 +28,11 @@ import numpy as np
 
 from arbiter.quantum.states import (
     ALL_LABELS,
-    BELL_PHI_PLUS,
     I2,
     MAXIMALLY_MIXED,
+    PauliLabel,
     X,
     Z,
-    PauliLabel,
     apply_on_second,
     depolarize,
     measure_resend,
@@ -95,6 +94,7 @@ class ChannelParams:
 
 # --- teleportation --------------------------------------------------------
 
+
 def _cnot(control: int, target: int, n: int = 3) -> np.ndarray:
     dim = 2**n
     U = np.zeros((dim, dim))
@@ -147,9 +147,7 @@ def resource_state(h: Hypothesis, params: ChannelParams) -> np.ndarray:
     raise ValueError(h)
 
 
-def received_state(
-    h: Hypothesis, round_type: RoundType, label: PauliLabel, params: ChannelParams
-) -> np.ndarray:
+def received_state(h: Hypothesis, round_type: RoundType, label: PauliLabel, params: ChannelParams) -> np.ndarray:
     """Verifier's post-correction state on an attacked SIGNATURE/FRESHNESS round
     whose honest content is ``label``."""
     honest = pauli_state(label)
@@ -177,6 +175,7 @@ def chsh_state(h: Hypothesis, params: ChannelParams) -> np.ndarray:
 
 # --- outcome probabilities ------------------------------------------------
 
+
 def mismatch_probability(rho: np.ndarray, label: PauliLabel) -> float:
     wrong = projector(label.basis, 1 - label.bit)
     return float(np.real(np.trace(wrong @ rho)))
@@ -201,7 +200,7 @@ def _attack_cell_probs(h: Hypothesis, params: ChannelParams) -> tuple[float, ...
             float(np.mean([mismatch_probability(received_state(h, rt, lab, params), lab) for lab in ALL_LABELS]))
         )
     rho = chsh_state(h, params)
-    for (a, b), sign in zip(CHSH_SETTINGS, CHSH_SIGNS):
+    for (a, b), sign in zip(CHSH_SETTINGS, CHSH_SIGNS, strict=True):
         probs.append((1 - sign * chsh_correlator(rho, a, b)) / 2)
     return tuple(probs)
 

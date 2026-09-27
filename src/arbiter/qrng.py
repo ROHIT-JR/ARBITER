@@ -26,9 +26,7 @@ class QRNG:
 
     def bits(self, n: int) -> list[int]:
         self._calls += 1
-        result = self._sim.run(
-            _CIRCUIT, shots=n, memory=True, seed_simulator=self._seed + 7919 * self._calls
-        ).result()
+        result = self._sim.run(_CIRCUIT, shots=n, memory=True, seed_simulator=self._seed + 7919 * self._calls).result()
         return [int(b) for b in result.get_memory()]
 
     def token_bytes(self, n: int) -> bytes:

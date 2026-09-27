@@ -33,13 +33,13 @@ from arbiter.qds_simulation.protocol import Transcript
 @dataclass
 class SequentialVerdict:
     rejected: bool
-    stopped_at: int                 # alarm time (== budget if never rejected)
-    attributed_at: int              # rounds used for the attribution
+    stopped_at: int  # alarm time (== budget if never rejected)
+    attributed_at: int  # rounds used for the attribution
     budget: int
     log_threshold: float
     attribution: Hypothesis
-    posterior: dict[str, float]     # over attacks, at the stopping time
-    log_evidence: np.ndarray        # log E_t for t = 1..budget
+    posterior: dict[str, float]  # over attacks, at the stopping time
+    log_evidence: np.ndarray  # log E_t for t = 1..budget
 
     def to_dict(self, trajectory: bool = False) -> dict:
         d = {
@@ -57,8 +57,13 @@ class SequentialVerdict:
 
 
 class SequentialDetector:
-    def __init__(self, params: ChannelParams | None = None, alpha: float = 0.01,
-                 theta_grid: np.ndarray = DEFAULT_THETA_GRID, attribution_confidence: float = 0.99):
+    def __init__(
+        self,
+        params: ChannelParams | None = None,
+        alpha: float = 0.01,
+        theta_grid: np.ndarray = DEFAULT_THETA_GRID,
+        attribution_confidence: float = 0.99,
+    ):
         self.params = params or ChannelParams()
         self.alpha = alpha
         self.attribution_confidence = attribution_confidence
@@ -66,10 +71,12 @@ class SequentialDetector:
         p0 = cell_probabilities(Hypothesis.LEGITIMATE, 0.0, self.params)
         _, alt, self.groups = build_alternatives(self.params, self.theta_grid)
         # increment[outcome, cell, component] = log p_alt - log p_0
-        self._inc = np.stack([
-            np.log(1 - alt).T - np.log(1 - p0)[:, None],
-            np.log(alt).T - np.log(p0)[:, None],
-        ])
+        self._inc = np.stack(
+            [
+                np.log(1 - alt).T - np.log(1 - p0)[:, None],
+                np.log(alt).T - np.log(p0)[:, None],
+            ]
+        )
         # Prior weight: uniform over attacks, then uniform over each one's thetas.
         self._logw = np.empty(alt.shape[0])
         for idx in self.groups.values():
@@ -84,9 +91,7 @@ class SequentialDetector:
         t = int(crossed[0]) + 1 if rejected else len(cells)
 
         # attack posterior after every round, shape (T, n_attacks)
-        marg = np.stack(
-            [logsumexp(cum[:, idx] + self._logw[idx], axis=1) for idx in self.groups.values()], axis=1
-        )
+        marg = np.stack([logsumexp(cum[:, idx] + self._logw[idx], axis=1) for idx in self.groups.values()], axis=1)
         posts = np.exp(marg - logsumexp(marg, axis=1, keepdims=True))
         t_attr = t
         if rejected:
@@ -100,7 +105,7 @@ class SequentialDetector:
             budget=len(cells),
             log_threshold=log_thr,
             attribution=ATTACKS[int(post.argmax())] if rejected else Hypothesis.LEGITIMATE,
-            posterior={h.value: float(p) for h, p in zip(ATTACKS, post)},
+            posterior={h.value: float(p) for h, p in zip(ATTACKS, post, strict=True)},
             log_evidence=log_e,
         )
 

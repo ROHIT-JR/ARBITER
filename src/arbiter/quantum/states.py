@@ -36,7 +36,7 @@ class PauliLabel:
         return BASES.index(self.basis) * 2 + self.bit
 
     @classmethod
-    def from_index(cls, i: int) -> "PauliLabel":
+    def from_index(cls, i: int) -> PauliLabel:
         return cls(BASES[i // 2], i % 2)
 
 

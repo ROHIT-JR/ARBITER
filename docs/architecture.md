@@ -21,7 +21,10 @@
                          │ Merkle-Lamport; JSON-lines persistence; verify_entries()         │
                          └───────────────────────────────┬──────────────────────────────────┘
                                                          │
-                                          arbiter.api (FastAPI)  →  dashboard (planned)
+                                          arbiter.api (FastAPI)  →  frontend/ (React dashboard)
+
+ arbiter.noise              trapped-ion error budget ─► ChannelParams (feeds everything above)
+ arbiter.pki_risk_scoring   X.509 / key → Shor resources + Mosca risk  (independent of the QDS path)
 ```
 
 ## Design choices
@@ -36,5 +39,5 @@
 | Want to… | Touch |
 |---|---|
 | add an attack | `Hypothesis`, `resource_state` / `received_state` / `chsh_state` in `model.py`, `_round_spec` in `protocol.py`, plus a fixture in `tests/test_detection.py` |
-| use a different noise model (e.g. trapped-ion) | `ChannelParams` and the resource state. Everything downstream is derived from it |
+| use a different noise model | build `ChannelParams` from `arbiter.noise.TrappedIonParams` (or your own model). Everything downstream is derived from it |
 | run on hardware | swap the `AerSimulator` in `protocol._run_qiskit` / `qrng.QRNG` for a hardware backend |

@@ -20,7 +20,6 @@ from scipy.linalg import block_diag
 from arbiter.qds_simulation.model import (
     ATTACKS,
     CHSH_SETTINGS,
-    ChannelParams,
     Hypothesis,
     RoundType,
     cell_probabilities,
@@ -38,7 +37,7 @@ def cq_state(h: Hypothesis, theta: float, config: SessionConfig) -> np.ndarray:
     p = config.params
     legit, attack = Hypothesis.LEGITIMATE, h
     blocks = []
-    for w, rt in zip(config.round_mix[:2], (RoundType.SIGNATURE, RoundType.FRESHNESS)):
+    for w, rt in zip(config.round_mix[:2], (RoundType.SIGNATURE, RoundType.FRESHNESS), strict=True):
         r0 = received_state(legit, rt, _REF_LABEL, p)
         r1 = received_state(attack, rt, _REF_LABEL, p)
         blocks.append(w * ((1 - theta) * r0 + theta * r1))
@@ -63,17 +62,19 @@ def attack_bounds(theta: float = 1.0, config: SessionConfig | None = None, epsil
         rho1 = cq_state(h, theta, config)
         xi_q, s_opt = quantum_chernoff(rho0, rho1)
         xi_m = classical_chernoff(m0, measured_distribution(h, theta, config))
-        rows.append({
-            "attack": h.value,
-            "theta": theta,
-            "trace_distance": trace_distance(rho0, rho1),
-            "helstrom_error_single_round": helstrom_error(rho0, rho1),
-            "quantum_chernoff": xi_q,
-            "chernoff_s_opt": s_opt,
-            "measured_chernoff": xi_m,
-            "measurement_efficiency": xi_m / xi_q if xi_q > 0 else float("nan"),
-            "rounds_for_epsilon_quantum": float(np.log(1 / epsilon) / xi_q) if xi_q > 0 else float("inf"),
-            "rounds_for_epsilon_measured": float(np.log(1 / epsilon) / xi_m) if xi_m > 0 else float("inf"),
-            "epsilon": epsilon,
-        })
+        rows.append(
+            {
+                "attack": h.value,
+                "theta": theta,
+                "trace_distance": trace_distance(rho0, rho1),
+                "helstrom_error_single_round": helstrom_error(rho0, rho1),
+                "quantum_chernoff": xi_q,
+                "chernoff_s_opt": s_opt,
+                "measured_chernoff": xi_m,
+                "measurement_efficiency": xi_m / xi_q if xi_q > 0 else float("nan"),
+                "rounds_for_epsilon_quantum": float(np.log(1 / epsilon) / xi_q) if xi_q > 0 else float("inf"),
+                "rounds_for_epsilon_measured": float(np.log(1 / epsilon) / xi_m) if xi_m > 0 else float("inf"),
+                "epsilon": epsilon,
+            }
+        )
     return rows

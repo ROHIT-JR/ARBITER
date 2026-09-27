@@ -23,7 +23,7 @@ def _mpow(rho: np.ndarray, s: float) -> np.ndarray:
     which is the support-projector convention the Chernoff bound needs."""
     w, v = np.linalg.eigh(_herm(rho))
     w = np.clip(w.real, 0, None)
-    ws = np.where(w > 1e-14, w ** s, 0.0)
+    ws = np.where(w > 1e-14, w**s, 0.0)
     return (v * ws) @ v.conj().T
 
 
@@ -104,9 +104,7 @@ def optimal_povm(states: list[np.ndarray], priors: list[float] | None = None):
     d = states[0].shape[0]
     priors = priors or [1.0 / n] * n
     Ms = [cp.Variable((d, d), hermitian=True) for _ in range(n)]
-    objective = cp.Maximize(
-        cp.real(sum(p * cp.trace(M @ r) for p, M, r in zip(priors, Ms, states)))
-    )
+    objective = cp.Maximize(cp.real(sum(p * cp.trace(M @ r) for p, M, r in zip(priors, Ms, states, strict=True))))
     constraints = [M >> 0 for M in Ms] + [sum(Ms) == np.eye(d)]
     prob = cp.Problem(objective, constraints)
     prob.solve()

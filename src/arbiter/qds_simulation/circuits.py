@@ -23,10 +23,10 @@ from arbiter.quantum.states import PauliLabel
 class TeleportSpec:
     """Everything that determines one teleportation-round circuit."""
 
-    sent: PauliLabel            # eigenstate the (claimed) signer feeds in
-    verify: PauliLabel          # eigenstate the verifier expects
-    visibility: float           # legitimate link visibility
-    pre_noise: float = 0.0      # depolarizing prob on the input (replay storage)
+    sent: PauliLabel  # eigenstate the (claimed) signer feeds in
+    verify: PauliLabel  # eigenstate the verifier expects
+    visibility: float  # legitimate link visibility
+    pre_noise: float = 0.0  # depolarizing prob on the input (replay storage)
     intercept_basis: str | None = None  # Eve's measure-resend basis on q2
     impersonated: bool = False  # corrections come from Eve, not a Bell measurement
 

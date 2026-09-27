@@ -27,7 +27,9 @@ dependencies = [
 [project.optional-dependencies]
 api = ["fastapi>=0.110", "uvicorn>=0.29", "pydantic>=2"]
 sdp = ["cvxpy>=1.4"]
-dev = ["pytest>=8", "httpx>=0.27", "arbiter-qds[api,sdp]"]
+pki = ["cryptography>=42"]
+notebooks = ["jupyter>=1", "matplotlib>=3.8", "pandas>=2"]
+dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.6", "nbclient>=0.10", "nbformat>=5.10", "ipykernel>=6", "matplotlib>=3.8", "pandas>=2", "arbiter-qds[api,sdp,pki]"]
 
 [project.urls]
 Repository = "https://github.com/ROHIT-JR/ARBITER"
@@ -38,3 +40,14 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["slow: statistical or Qiskit-circuit tests that take several seconds"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["frontend", "*.ipynb"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["arbiter"]

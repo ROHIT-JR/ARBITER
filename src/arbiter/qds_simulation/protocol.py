@@ -97,16 +97,23 @@ def simulate_session(
     seed: int | None = None,
     backend: str = "analytic",
 ) -> Transcript:
+    """Simulate one session. ``seed`` makes it reproducible; it is mixed with the
+    scenario so that different scenarios run under the same seed still get
+    distinct QRNG nonces (identical calls do reproduce the same nonce, which
+    the verifier correctly treats as a resubmission)."""
     config = config or SessionConfig()
-    qrng = QRNG(seed)
-    nonce = qrng.token_bytes(32)
-    rng = np.random.default_rng(qrng.seed_int())
-    n = config.n_rounds
     if hypothesis is Hypothesis.LEGITIMATE:
         theta = 0.0
     elif hypothesis in ALL_OR_NOTHING:
         theta = 1.0
     theta = float(theta)
+    if seed is not None:
+        scenario = f"{seed}|{hypothesis.value}|{theta!r}|{config.n_rounds}|{message}".encode()
+        seed = int.from_bytes(hashlib.sha256(scenario).digest()[:4], "big") >> 1
+    qrng = QRNG(seed)
+    nonce = qrng.token_bytes(32)
+    rng = np.random.default_rng(qrng.seed_int())
+    n = config.n_rounds
 
     rtypes = rng.choice(3, size=n, p=config.round_mix)
     settings = rng.integers(0, 4, size=n)
@@ -140,8 +147,15 @@ def simulate_session(
     )
 
 
-def _round_spec(h: Hypothesis, rtype: int, setting: int, label_idx: int, attacked: bool,
-                params: ChannelParams, rng: np.random.Generator):
+def _round_spec(
+    h: Hypothesis,
+    rtype: int,
+    setting: int,
+    label_idx: int,
+    attacked: bool,
+    params: ChannelParams,
+    rng: np.random.Generator,
+):
     v = params.visibility
     h = h if attacked else Hypothesis.LEGITIMATE
     intercept = BASES[rng.integers(3)] if h is Hypothesis.CHANNEL_MANIPULATION else None
@@ -173,10 +187,8 @@ def _run_qiskit(h, rtypes, settings, labels, attacked, params, rng) -> np.ndarra
             qc = chsh_circuit(spec)
         else:
             qc = teleport_circuit(spec)
-        memory = sim.run(
-            qc, shots=len(idx), memory=True, seed_simulator=int(rng.integers(2**31))
-        ).result().get_memory()
-        for i, shot in zip(idx, memory):
+        memory = sim.run(qc, shots=len(idx), memory=True, seed_simulator=int(rng.integers(2**31))).result().get_memory()
+        for i, shot in zip(idx, memory, strict=True):
             regs = shot.split()  # registers appear in reverse order of qc.cregs
             if isinstance(spec, ChshSpec):
                 ab = regs[0]  # last register, bits written as "b a"

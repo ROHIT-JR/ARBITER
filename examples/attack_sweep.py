@@ -7,12 +7,13 @@ information-theoretic limits for every attack class.
 from __future__ import annotations
 
 import argparse
+import zlib
 from collections import Counter
 
 import numpy as np
 
 from arbiter.detection import SequentialDetector, UnifiedDetector, attack_bounds
-from arbiter.qds_simulation import ATTACKS, Hypothesis, SessionConfig, simulate_session
+from arbiter.qds_simulation import Hypothesis, SessionConfig, simulate_session
 
 
 def main() -> None:
@@ -28,18 +29,21 @@ def main() -> None:
     sequential = SequentialDetector(config.params, args.alpha)
     labels = [h.value for h in Hypothesis]
 
-    print(f"ARBITER attack sweep: {args.sessions} sessions x {args.rounds} rounds, "
-          f"alpha={args.alpha}, visibility={config.params.visibility}, backend={args.backend}\n")
+    print(
+        f"ARBITER attack sweep: {args.sessions} sessions x {args.rounds} rounds, "
+        f"alpha={args.alpha}, visibility={config.params.visibility}, backend={args.backend}\n"
+    )
     for theta in (1.0, 0.3, 0.1):
         print(f"=== attack strength theta = {theta} (impersonation is always 1.0) ===")
-        print(f"{'true \\ attributed':24s}" + "".join(f"{lab[:12]:>13s}" for lab in labels)
-              + f"{'alarm@':>9s}{'attrib@':>9s}")
+        header = "true / attributed"
+        print(f"{header:24s}" + "".join(f"{lab[:12]:>13s}" for lab in labels) + f"{'alarm@':>9s}{'attrib@':>9s}")
         for h in Hypothesis:
             got: Counter = Counter()
             alarm, attrib = [], []
             for s in range(args.sessions):
-                t = simulate_session(h, theta, config, seed=hash((h.value, theta, s)) & 0x7FFFFFFF,
-                                     backend=args.backend)
+                t = simulate_session(
+                    h, theta, config, seed=zlib.crc32(f"{h.value}|{theta}|{s}".encode()), backend=args.backend
+                )
                 got[unified.evaluate(t).attribution.value] += 1
                 q = sequential.evaluate(t)
                 if q.rejected:
@@ -51,12 +55,16 @@ def main() -> None:
         print()
 
     print("=== information-theoretic limits (theta = 1, epsilon = 1e-6) ===")
-    print(f"{'attack':22s}{'Helstrom/rnd':>13s}{'xi_quantum':>12s}{'xi_ARBITER':>12s}"
-          f"{'efficiency':>12s}{'N_quantum':>11s}{'N_ARBITER':>11s}")
+    print(
+        f"{'attack':22s}{'Helstrom/rnd':>13s}{'xi_quantum':>12s}{'xi_ARBITER':>12s}"
+        f"{'efficiency':>12s}{'N_quantum':>11s}{'N_ARBITER':>11s}"
+    )
     for r in attack_bounds(1.0, config):
-        print(f"{r['attack']:22s}{r['helstrom_error_single_round']:13.3f}{r['quantum_chernoff']:12.4f}"
-              f"{r['measured_chernoff']:12.4f}{r['measurement_efficiency']:12.2f}"
-              f"{r['rounds_for_epsilon_quantum']:11.0f}{r['rounds_for_epsilon_measured']:11.0f}")
+        print(
+            f"{r['attack']:22s}{r['helstrom_error_single_round']:13.3f}{r['quantum_chernoff']:12.4f}"
+            f"{r['measured_chernoff']:12.4f}{r['measurement_efficiency']:12.2f}"
+            f"{r['rounds_for_epsilon_quantum']:11.0f}{r['rounds_for_epsilon_measured']:11.0f}"
+        )
 
 
 if __name__ == "__main__":

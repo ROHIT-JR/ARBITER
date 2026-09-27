@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from collections import OrderedDict
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
@@ -18,6 +19,7 @@ from pydantic import BaseModel, Field
 from arbiter import __version__
 from arbiter.audit_ledger import AuditLedger, LedgerKeys
 from arbiter.detection import attack_bounds
+from arbiter.noise import PRESETS
 from arbiter.pipeline import Arbiter
 from arbiter.qds_simulation import (
     CELLS,
@@ -41,6 +43,20 @@ class SessionRequest(BaseModel):
     trajectory: bool = Field(False, description="include the sequential log-evidence trajectory")
 
 
+class CertificateRequest(BaseModel):
+    pem: str = Field(..., description="one or more PEM certificates")
+    protection_years_after_expiry: float = Field(0.0, ge=0, le=100)
+    crqc_year: int = Field(2035, ge=2025, le=2100)
+
+
+class KeyRequest(BaseModel):
+    algorithm: str = Field(..., examples=["RSA", "ECDSA", "Ed25519", "ML-DSA-65"])
+    key_bits: int | None = Field(None, ge=1, le=65536)
+    expires: datetime | None = None
+    protection_years_after_expiry: float = Field(0.0, ge=0, le=100)
+    crqc_year: int = Field(2035, ge=2025, le=2100)
+
+
 def _summarise_entry(e: dict) -> dict:
     p = e["payload"]
     out = {"index": e["index"], "timestamp": e["timestamp"], "hash": e["hash"], "prev_hash": e["prev_hash"]}
@@ -57,7 +73,14 @@ def _summarise_entry(e: dict) -> dict:
 
 
 def create_app(data_dir: Path | None = None, params: ChannelParams | None = None) -> FastAPI:
+    """Build the app. ``$ARBITER_NOISE_PRESET`` (a key of ``arbiter.noise.PRESETS``)
+    calibrates the legitimate channel from a trapped-ion noise model."""
     data_dir = Path(data_dir or os.environ.get("ARBITER_DATA_DIR", ".arbiter"))
+    preset = os.environ.get("ARBITER_NOISE_PRESET")
+    if params is None and preset:
+        if preset not in PRESETS:
+            raise ValueError(f"unknown ARBITER_NOISE_PRESET {preset!r}; choose from {sorted(PRESETS)}")
+        params = PRESETS[preset].channel_params()
     key_path = data_dir / "ledger_keys.json"
     if key_path.exists():
         keys = LedgerKeys.load(key_path)
@@ -76,7 +99,13 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
 
     @app.get("/health")
     def health():
-        return {"status": "ok", "version": __version__, "ledger_entries": len(ledger.entries)}
+        return {
+            "status": "ok",
+            "version": __version__,
+            "ledger_entries": len(ledger.entries),
+            "ledger_capacity": keys.hbs.capacity,
+            "noise_preset": preset,
+        }
 
     @app.get("/model")
     def model(theta: float = Query(1.0, gt=0, le=1)):
@@ -105,15 +134,21 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
         transcripts[t.session_id] = t
         while len(transcripts) > 256:
             transcripts.popitem(last=False)
-        return arbiter.verify(t).to_dict(trajectory=req.trajectory)
+        return _verify(t, req.trajectory)
+
+    def _verify(t: Transcript, trajectory: bool = False) -> dict:
+        try:
+            return arbiter.verify(t).to_dict(trajectory=trajectory)
+        except ValueError as exc:  # hash-based one-time keys exhausted
+            raise HTTPException(409, f"audit ledger cannot sign: {exc}; rotate keys") from exc
 
     @app.post("/sessions/{session_id}/resubmit")
-    def resubmit(session_id: str):
+    def resubmit(session_id: str, trajectory: bool = Query(False)):
         """Replay a previously verified transcript verbatim (classical replay demo)."""
         t = transcripts.get(session_id)
         if t is None:
             raise HTTPException(404, "unknown or expired session id")
-        return arbiter.verify(t).to_dict()
+        return _verify(t, trajectory)
 
     @app.get("/ledger")
     def ledger_entries(limit: int = Query(50, ge=1, le=1000)):
@@ -129,5 +164,38 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
             raise HTTPException(404, "no such entry")
         return ledger.entries[index]
 
-    return app
+    @app.get("/noise/presets")
+    def noise_presets():
+        """Trapped-ion noise presets and the channel parameters they induce."""
+        return {name: p.to_dict() for name, p in PRESETS.items()}
 
+    @app.post("/pki/assess")
+    def pki_assess(req: CertificateRequest):
+        """Quantum-risk score for each certificate in a PEM bundle."""
+        try:
+            from arbiter.pki_risk_scoring import assess_certificates
+        except ImportError as exc:  # pragma: no cover
+            raise HTTPException(501, "install arbiter-qds[pki] for certificate parsing") from exc
+        try:
+            reports = assess_certificates(
+                req.pem.encode(),
+                protection_years_after_expiry=req.protection_years_after_expiry,
+                crqc_year=req.crqc_year,
+            )
+        except ValueError as exc:
+            raise HTTPException(422, f"could not parse certificate: {exc}") from exc
+        return [r.to_dict() for r in reports]
+
+    @app.post("/pki/assess-key")
+    def pki_assess_key(req: KeyRequest):
+        from arbiter.pki_risk_scoring import assess_key
+
+        return assess_key(
+            req.algorithm,
+            req.key_bits,
+            expires=req.expires,
+            protection_years_after_expiry=req.protection_years_after_expiry,
+            crqc_year=req.crqc_year,
+        ).to_dict()
+
+    return app

@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+from arbiter.qds_simulation.model import teleport
 from arbiter.quantum.info import (
     classical_chernoff,
     fidelity,
@@ -22,7 +23,6 @@ from arbiter.quantum.states import (
     projector,
     werner,
 )
-from arbiter.qds_simulation.model import teleport
 
 
 @pytest.mark.parametrize("label", ALL_LABELS)
@@ -77,6 +77,11 @@ def test_projective_pauli_measurement_is_helstrom_optimal():
     legit, forged = depolarize(pauli_state(label), 0.92), MAXIMALLY_MIXED
     p_succ, povm = optimal_povm([legit, forged])
     assert 1 - p_succ == pytest.approx(helstrom_error(legit, forged), abs=1e-5)
-    proj_success = 0.5 * (np.trace(projector(label.basis, label.bit) @ legit)
-                          + np.trace(projector(label.basis, 1 - label.bit) @ forged)).real
+    proj_success = (
+        0.5
+        * (
+            np.trace(projector(label.basis, label.bit) @ legit)
+            + np.trace(projector(label.basis, 1 - label.bit) @ forged)
+        ).real
+    )
     assert proj_success == pytest.approx(p_succ, abs=1e-5)

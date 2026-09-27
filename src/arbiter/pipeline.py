@@ -32,7 +32,7 @@ from arbiter.qds_simulation.protocol import Transcript
 @dataclass
 class ArbiterVerdict:
     transcript: Transcript
-    decision: str                   # "ACCEPT" | "REJECT"
+    decision: str  # "ACCEPT" | "REJECT"
     attribution: Hypothesis
     reasons: list[str]
     nonce_fresh: bool
@@ -73,8 +73,13 @@ class ArbiterVerdict:
 
 
 class Arbiter:
-    def __init__(self, params: ChannelParams | None = None, alpha: float = 0.01,
-                 ledger: AuditLedger | None = None, chsh_threshold: float = 2.0):
+    def __init__(
+        self,
+        params: ChannelParams | None = None,
+        alpha: float = 0.01,
+        ledger: AuditLedger | None = None,
+        chsh_threshold: float = 2.0,
+    ):
         self.params = params or ChannelParams()
         self.alpha = alpha
         self.chsh_threshold = chsh_threshold
@@ -108,8 +113,9 @@ class Arbiter:
         if decision == "ACCEPT":
             attribution = Hypothesis.LEGITIMATE
 
-        verdict = ArbiterVerdict(transcript, decision, attribution, reasons, nonce_fresh,
-                                 chsh, fresh, unified, sequential)
+        verdict = ArbiterVerdict(
+            transcript, decision, attribution, reasons, nonce_fresh, chsh, fresh, unified, sequential
+        )
         if self.ledger is not None:
             payload = verdict.to_dict()
             payload["type"] = "verdict"

@@ -47,11 +47,7 @@ def build_alternatives(params: ChannelParams, theta_grid: np.ndarray):
     outcome-1 probability of component j, and groups[h] the component indices
     belonging to attack h. All-or-nothing attacks get the single theta = 1.
     """
-    components = [
-        (h, float(t))
-        for h in ATTACKS
-        for t in ((1.0,) if h in ALL_OR_NOTHING else theta_grid)
-    ]
+    components = [(h, float(t)) for h in ATTACKS for t in ((1.0,) if h in ALL_OR_NOTHING else theta_grid)]
     probs = np.array([cell_probabilities(h, t, params) for h, t in components])
     groups = {h: np.array([j for j, (g, _) in enumerate(components) if g is h]) for h in ATTACKS}
     return components, probs, groups
@@ -63,10 +59,10 @@ class UnifiedVerdict:
     statistic: float
     threshold: float
     alpha: float
-    attribution: Hypothesis           # LEGITIMATE when not rejected
-    posterior: dict[str, float]       # over all five hypotheses (uniform priors)
-    theta_hat: dict[str, float]       # MLE attack strength per attack
-    loglik: dict[str, float]          # profile log-likelihood per hypothesis
+    attribution: Hypothesis  # LEGITIMATE when not rejected
+    posterior: dict[str, float]  # over all five hypotheses (uniform priors)
+    theta_hat: dict[str, float]  # MLE attack strength per attack
+    loglik: dict[str, float]  # profile log-likelihood per hypothesis
 
     def to_dict(self) -> dict:
         return {
@@ -144,9 +140,7 @@ class UnifiedDetector:
             alpha=self.alpha,
             attribution=attribution,
             posterior=posterior,
-            theta_hat={
-                h.value: self.components[idx[llalt[idx].argmax()]][1] for h, idx in self.groups.items()
-            },
+            theta_hat={h.value: self.components[idx[llalt[idx].argmax()]][1] for h, idx in self.groups.items()},
             loglik={Hypothesis.LEGITIMATE.value: ll0}
             | {h.value: float(llalt[idx].max()) for h, idx in self.groups.items()},
         )

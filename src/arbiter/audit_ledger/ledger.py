@@ -43,20 +43,24 @@ class LedgerKeys:
     hbs: MerkleLamport
 
     @classmethod
-    def generate(cls, hbs_height: int = 8) -> "LedgerKeys":
+    def generate(cls, hbs_height: int = 10) -> LedgerKeys:
         return cls(MLDSA(), MerkleLamport(secrets.token_bytes(32), hbs_height))
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({
-            "mldsa_pk": base64.b64encode(self.mldsa.public_key).decode(),
-            "mldsa_sk": base64.b64encode(self.mldsa.secret_key).decode(),
-            "hbs_seed": self.hbs.seed.hex(),
-            "hbs_height": self.hbs.height,
-        }))
+        path.write_text(
+            json.dumps(
+                {
+                    "mldsa_pk": base64.b64encode(self.mldsa.public_key).decode(),
+                    "mldsa_sk": base64.b64encode(self.mldsa.secret_key).decode(),
+                    "hbs_seed": self.hbs.seed.hex(),
+                    "hbs_height": self.hbs.height,
+                }
+            )
+        )
 
     @classmethod
-    def load(cls, path: Path) -> "LedgerKeys":
+    def load(cls, path: Path) -> LedgerKeys:
         d = json.loads(path.read_text())
         return cls(
             MLDSA(base64.b64decode(d["mldsa_pk"]), base64.b64decode(d["mldsa_sk"])),
@@ -83,18 +87,22 @@ class AuditLedger:
         if path is not None and path.exists():
             self.entries = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
             g = self.entries[0]["payload"]
-            if g["mldsa_pk"] != base64.b64encode(keys.mldsa.public_key).decode() or g["hbs_root"] != keys.hbs.root.hex():
-                raise ValueError("ledger at %s was created with different keys" % path)
+            pk = base64.b64encode(keys.mldsa.public_key).decode()
+            if g["mldsa_pk"] != pk or g["hbs_root"] != keys.hbs.root.hex():
+                raise ValueError(f"ledger at {path} was created with different keys")
         if not self.entries:
-            self._append_raw({
-                "type": "genesis",
-                "mldsa_algorithm": MLDSA.ALGORITHM,
-                "mldsa_backend": keys.mldsa.backend.name,
-                "mldsa_pk": base64.b64encode(keys.mldsa.public_key).decode(),
-                "hbs_scheme": "merkle-lamport-sha3-256",
-                "hbs_root": keys.hbs.root.hex(),
-                "hbs_height": keys.hbs.height,
-            }, sign=False)
+            self._append_raw(
+                {
+                    "type": "genesis",
+                    "mldsa_algorithm": MLDSA.ALGORITHM,
+                    "mldsa_backend": keys.mldsa.backend.name,
+                    "mldsa_pk": base64.b64encode(keys.mldsa.public_key).decode(),
+                    "hbs_scheme": "merkle-lamport-sha3-256",
+                    "hbs_root": keys.hbs.root.hex(),
+                    "hbs_height": keys.hbs.height,
+                },
+                sign=False,
+            )
 
     @property
     def genesis_hash(self) -> str:
