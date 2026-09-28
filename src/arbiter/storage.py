@@ -66,6 +66,7 @@ class SQLiteStorage:
                     hypothesis TEXT NOT NULL,
                     theta REAL NOT NULL,
                     backend TEXT NOT NULL,
+                    protocol TEXT NOT NULL DEFAULT 'prf',
                     seed INTEGER,
                     nonce TEXT NOT NULL,
                     cells BLOB NOT NULL,
@@ -96,8 +97,11 @@ class SQLiteStorage:
                 );
                 """
             )
-            columns = {row[1] for row in connection.execute("PRAGMA table_info(jobs)")}
-            if "owner" not in columns:
+            session_columns = {row["name"] for row in connection.execute("PRAGMA table_info(sessions)")}
+            if "protocol" not in session_columns:
+                connection.execute("ALTER TABLE sessions ADD COLUMN protocol TEXT NOT NULL DEFAULT 'prf'")
+            job_columns = {row["name"] for row in connection.execute("PRAGMA table_info(jobs)")}
+            if "owner" not in job_columns:
                 connection.execute("ALTER TABLE jobs ADD COLUMN owner TEXT NOT NULL DEFAULT 'anonymous:local'")
             connection.execute(
                 "UPDATE jobs SET status='failed', progress=1, error='interrupted by server restart', updated_at=? "
@@ -119,9 +123,9 @@ class SQLiteStorage:
             connection.execute(
                 """
                 INSERT OR IGNORE INTO sessions (
-                    id, created_at, hypothesis, theta, backend, seed, nonce,
+                    id, created_at, hypothesis, theta, backend, protocol, seed, nonce,
                     cells, outcomes, digest, message, attacked
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     transcript.session_id,
@@ -129,6 +133,7 @@ class SQLiteStorage:
                     transcript.truth.value,
                     transcript.theta,
                     transcript.backend,
+                    transcript.protocol,
                     seed,
                     transcript.nonce,
                     _array_bytes(transcript.cells, np.int64),
@@ -154,6 +159,7 @@ class SQLiteStorage:
             theta=float(row["theta"]),
             attacked=_array_from_bytes(row["attacked"], np.bool_),
             backend=row["backend"],
+            protocol=row["protocol"],
         )
         if transcript.digest() != row["digest"]:
             raise ValueError(f"stored transcript {session_id} failed its digest check")
@@ -212,7 +218,7 @@ class SQLiteStorage:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT s.id, s.created_at, s.hypothesis, s.theta, s.backend, s.nonce, s.digest,
+                SELECT s.id, s.created_at, s.hypothesis, s.theta, s.backend, s.protocol, s.nonce, s.digest,
                        v.decision, v.attribution, v.ledger_index
                 FROM sessions AS s
                 LEFT JOIN verdicts AS v ON v.id = (
@@ -229,7 +235,7 @@ class SQLiteStorage:
         with self._connect() as connection:
             row = connection.execute(
                 """
-                SELECT s.id, s.created_at, s.hypothesis, s.theta, s.backend, s.seed, s.nonce, s.digest,
+                SELECT s.id, s.created_at, s.hypothesis, s.theta, s.backend, s.protocol, s.seed, s.nonce, s.digest,
                        v.json AS verdict
                 FROM sessions AS s
                 LEFT JOIN verdicts AS v ON v.id = (
@@ -254,6 +260,7 @@ class SQLiteStorage:
             "hypothesis": row["hypothesis"],
             "theta": row["theta"],
             "backend": row["backend"],
+            "protocol": row["protocol"],
             "nonce": row["nonce"],
             "transcript_digest": row["digest"],
             "decision": row["decision"] if "decision" in row.keys() else None,

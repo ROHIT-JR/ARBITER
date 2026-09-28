@@ -116,6 +116,10 @@ class Transcript:
         h.update(f"{self.session_id}|{self.message}|{self.nonce}|".encode())
         h.update(self.cells.astype(np.uint8).tobytes())
         h.update(self.outcomes.astype(np.uint8).tobytes())
+        # Keep the pre-QDS PRF digest byte-for-byte compatible with persisted
+        # sessions, while binding QDS transcripts to their distinct protocol.
+        if self.protocol != "prf":
+            h.update(f"|protocol={self.protocol}".encode())
         return h.hexdigest()
 
 

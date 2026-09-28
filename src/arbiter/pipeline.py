@@ -80,8 +80,9 @@ class Arbiter:
         alpha: float = 0.01,
         ledger: AuditLedger | None = None,
         chsh_threshold: float = 2.0,
-        protocol: str = "prf",
         nonces: NonceRegistry | None = None,
+        *,
+        protocol: str = "prf",
     ):
         self.params = params or ChannelParams()
         self.alpha = alpha
