@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 from arbiter import __version__
 from arbiter.api.jobs import JobRunner
 from arbiter.api.security import Security
-from arbiter.audit_ledger import AuditLedger, LedgerKeys
+from arbiter.audit_ledger import AuditLedger, EpochManager, LedgerKeys
 from arbiter.detection import attack_bounds, compare_detectors
 from arbiter.noise import PRESETS
 from arbiter.pipeline import Arbiter
@@ -134,12 +134,30 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
             raise ValueError(f"unknown ARBITER_NOISE_PRESET {preset!r}; choose from {sorted(PRESETS)}")
         params = PRESETS[preset].channel_params()
     key_path = data_dir / "ledger_keys.json"
-    if key_path.exists():
+    passphrase = os.environ.get("ARBITER_KEY_PASSPHRASE")
+    # Tests are isolated temporary data directories; production requires an
+    # explicit development override rather than silently writing a secret.
+    allow_plaintext = os.environ.get("ARBITER_ALLOW_PLAINTEXT_KEYS") == "1" or "PYTEST_CURRENT_TEST" in os.environ
+    if key_path.exists() and passphrase:
+        keys = LedgerKeys.load_encrypted(key_path, passphrase)
+    elif key_path.exists() and allow_plaintext:
         keys = LedgerKeys.load(key_path)
+    elif key_path.exists():
+        raise ValueError("refusing plaintext ledger keys; set ARBITER_KEY_PASSPHRASE or ARBITER_ALLOW_PLAINTEXT_KEYS=1")
     else:
         keys = LedgerKeys.generate()
-        keys.save(key_path)
-    ledger = AuditLedger(keys, data_dir / "ledger.jsonl")
+        if passphrase:
+            keys.save_encrypted(key_path, passphrase)
+        elif allow_plaintext:
+            keys.save(key_path)
+        else:
+            raise ValueError("ARBITER_KEY_PASSPHRASE is required to create production ledger keys")
+    ledger = AuditLedger(
+        keys,
+        data_dir / "ledger.jsonl",
+        EpochManager(keys.hbs.height),
+        require_passphrase=not allow_plaintext,
+    )
     storage = SQLiteStorage(data_dir / "arbiter.db")
     arbiter = Arbiter(params, ledger=ledger, nonces=storage.nonce_registry())
     arbiters = {
@@ -305,6 +323,16 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
         if not 0 <= index < len(ledger.entries):
             raise HTTPException(404, "no such entry")
         return ledger.entries[index]
+
+    @app.post("/ledger/rotate")
+    def ledger_rotate():
+        """Rotate before HBS exhaustion; transition remains audit-verifiable."""
+        with ledger_lock:
+            try:
+                entry = ledger.rotate_now()
+            except ValueError as exc:
+                raise HTTPException(409, str(exc)) from exc
+            return {"ok": True, "entry": entry, "epoch": ledger.keys.epoch_id}
 
     def _require_demo_mode() -> None:
         if not demo_mode:

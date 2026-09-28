@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from arbiter.audit_ledger.common import GENESIS_PREV, canonical, entry_hash
-from arbiter.audit_ledger.epoch import EpochManager
+from arbiter.audit_ledger.epoch import EpochKeys, EpochManager, EpochMetadata
 from arbiter.audit_ledger.signatures import MLDSA, HashSignature, MerkleLamport
 from arbiter.audit_ledger.storage import EncryptedKeyStore
 
@@ -112,7 +112,9 @@ class AuditLedger:
         self.keys = keys
         self.path = path
         self.entries: list[dict] = []
-        self.epoch_manager = epoch_manager
+        # Rotation is on by default.  An injected manager is retained so callers
+        # can choose a lower threshold for tests or operational policy.
+        self.epoch_manager = epoch_manager or EpochManager(keys.hbs.height)
         self.require_passphrase = require_passphrase
         if path is not None and path.exists():
             self.entries = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
@@ -135,6 +137,13 @@ class AuditLedger:
                 # Add cross-signature reference
                 genesis_payload["cross_signature"] = self.epoch_manager.previous_epoch.cross_signature
             self._append_raw(genesis_payload, sign=False)
+        # The manager tracks the ledger's actual keys, never an unrelated
+        # throw-away keypair created while configuring it.
+        self.epoch_manager.current_epoch = EpochKeys(
+            keys.epoch_id, keys.mldsa, keys.hbs, self.genesis_hash, hbs_leaf=keys.hbs_leaf
+        )
+        if not self.epoch_manager.epochs:
+            self.epoch_manager.epochs.append(EpochMetadata(epoch_id=keys.epoch_id, start_index=0))
 
     @property
     def genesis_hash(self) -> str:
@@ -142,8 +151,8 @@ class AuditLedger:
 
     def append(self, payload: dict) -> dict:
         entry = self._append_raw(payload, sign=True)
-        # Check if we should rotate keys based on HBS usage
-        if self.epoch_manager and self.epoch_manager.should_rotate(self.keys.hbs_leaf + 1):
+        # Reserve one remaining one-time key for the transition itself.
+        if self.epoch_manager.should_rotate(self.keys.hbs_leaf):
             self._rotate_epoch()
         return entry
 
@@ -152,38 +161,71 @@ class AuditLedger:
 
         Returns the key_transition entry that was written.
         """
-        if not self.epoch_manager:
-            raise ValueError("no epoch manager configured; cannot rotate")
-        _ = len(self.entries) - 1  # global index before rotation
         self._rotate_epoch()
         # Return the key_transition entry we just wrote
         return self.entries[-1]
 
     def _rotate_epoch(self) -> None:
         """Rotate to a new epoch, writing a key_transition entry."""
+        if self.keys.hbs_leaf >= self.keys.hbs.capacity:
+            raise ValueError("hash-based key exhausted before rotation")
+        old_keys = self.keys
         global_index = len(self.entries) - 1
-        new_epoch_keys = self.epoch_manager.rotate_keys(global_index)
-
-        # Write a key_transition entry signed by both old and new keys
+        new_epoch_keys = LedgerKeys.generate(old_keys.hbs.height, old_keys.epoch_id + 1)
         transition_payload = {
             "type": "key_transition",
-            "prev_epoch": self.keys.epoch_id,
+            "prev_epoch": old_keys.epoch_id,
             "new_epoch": new_epoch_keys.epoch_id,
-            "prev_mldsa_pk": base64.b64encode(self.keys.mldsa.public_key).decode(),
+            "prev_mldsa_pk": base64.b64encode(old_keys.mldsa.public_key).decode(),
             "new_mldsa_pk": base64.b64encode(new_epoch_keys.mldsa.public_key).decode(),
-            "prev_hbs_root": self.keys.hbs.root.hex(),
+            "prev_hbs_root": old_keys.hbs.root.hex(),
             "new_hbs_root": new_epoch_keys.hbs.root.hex(),
-            "cross_signature": self.epoch_manager.current_epoch.cross_signature,
         }
+        # The retiring keys sign the containing ledger entry.  The incoming
+        # keys independently sign this immutable transition statement.
+        statement = canonical(transition_payload)
+        transition_payload["new_key_signature"] = {
+            "mldsa": base64.b64encode(new_epoch_keys.mldsa.sign(statement)).decode(),
+            "hbs": new_epoch_keys.hbs.sign(statement, leaf=0).to_dict(),
+        }
+        # Compatibility alias for older audit consumers.  The verifier uses
+        # new_key_signature; this field is covered by the retiring-key entry.
+        transition_payload["cross_signature"] = transition_payload["new_key_signature"]
         self._append_raw(transition_payload, sign=True)
-
-        # Now switch to new keys
-        self.keys = LedgerKeys(
-            mldsa=new_epoch_keys.mldsa,
-            hbs=new_epoch_keys.hbs,
-            epoch_id=new_epoch_keys.epoch_id,
-            hbs_leaf=0,
+        self.keys = LedgerKeys(new_epoch_keys.mldsa, new_epoch_keys.hbs, new_epoch_keys.epoch_id, hbs_leaf=1)
+        previous = self.epoch_manager.current_epoch
+        if self.epoch_manager.epochs:
+            self.epoch_manager.epochs[-1].end_index = global_index + 1
+            self.epoch_manager.epochs[-1].status = "retired"
+        self.epoch_manager.previous_epoch = previous
+        self.epoch_manager.current_epoch = EpochKeys(
+            self.keys.epoch_id,
+            self.keys.mldsa,
+            self.keys.hbs,
+            self.entries[-1]["hash"],
+            cross_signature=transition_payload["new_key_signature"],
+            hbs_leaf=1,
         )
+        self.epoch_manager.epochs.append(EpochMetadata(epoch_id=self.keys.epoch_id, start_index=global_index))
+
+    def restore(self) -> None:
+        """Reload the untouched persisted JSON-lines ledger for the demo API."""
+        if self.path is None:
+            raise ValueError("cannot restore a ledger without a persisted path")
+        if not self.path.exists():
+            raise ValueError(f"persisted ledger does not exist: {self.path}")
+        self.entries = [json.loads(line) for line in self.path.read_text().splitlines() if line.strip()]
+
+    def recompute_hashes_from(self, index: int) -> None:
+        """Demo-only hash-chain rewrite; signatures intentionally remain invalid."""
+        if not 1 <= index < len(self.entries):
+            raise ValueError("index must identify a signed ledger entry")
+        for current in range(index, len(self.entries)):
+            entry = self.entries[current]
+            entry["prev_hash"] = self.entries[current - 1]["hash"]
+            header = {key: entry[key] for key in ("index", "timestamp", "prev_hash", "payload")}
+            signatures = entry["signatures"]
+            entry["hash"] = entry_hash(entry["prev_hash"], canonical(header), signatures["mldsa"], signatures["hbs"])
 
     def _append_raw(self, payload: dict, sign: bool) -> dict:
         index = len(self.entries)
@@ -324,8 +366,14 @@ class AuditLedger:
 
 
 def verify_entries(entries: list[dict], expected_genesis_hash: str | None = None) -> VerificationReport:
-    """Verify a ledger using only its own genesis keys (plus, optionally, a
-    genesis hash obtained out-of-band)."""
+    """Verify untrusted entries, following only dual-authorised transitions."""
+    try:
+        return _verify_entries(entries, expected_genesis_hash)
+    except Exception as exc:
+        return VerificationReport(False, len(entries), 0, [f"malformed ledger entry: {type(exc).__name__}"])
+
+
+def _verify_entries(entries: list[dict], expected_genesis_hash: str | None = None) -> VerificationReport:
     report = VerificationReport(ok=True, entries=len(entries))
 
     def fail(i: int, why: str) -> VerificationReport:
@@ -339,6 +387,8 @@ def verify_entries(entries: list[dict], expected_genesis_hash: str | None = None
     genesis = entries[0]
     if genesis.get("payload", {}).get("type") != "genesis" or genesis.get("prev_hash") != GENESIS_PREV:
         return fail(0, "missing genesis")
+    if genesis.get("signatures") != {"mldsa": "", "hbs": None}:
+        return fail(0, "genesis must not contain signatures")
     header0 = {k: genesis[k] for k in ("index", "timestamp", "prev_hash", "payload")}
     if entry_hash(GENESIS_PREV, canonical(header0), "", None) != genesis["hash"]:
         return fail(0, "genesis hash mismatch")
@@ -346,6 +396,8 @@ def verify_entries(entries: list[dict], expected_genesis_hash: str | None = None
         return fail(0, "genesis differs from the published trust anchor")
     pk = base64.b64decode(genesis["payload"]["mldsa_pk"])
     root = bytes.fromhex(genesis["payload"]["hbs_root"])
+    next_leaf = 0
+    epoch = genesis["payload"].get("epoch", 0)
 
     for i, e in enumerate(entries[1:], start=1):
         if e.get("index") != i:
@@ -363,8 +415,42 @@ def verify_entries(entries: list[dict], expected_genesis_hash: str | None = None
             hbs = HashSignature.from_dict(sigs["hbs"])
         except Exception:
             return fail(i, "hash-based signature malformed")
-        if hbs.leaf != i - 1:
+        if hbs.leaf != next_leaf:
             return fail(i, "hash-based one-time key reused or out of order")
         if not MerkleLamport.verify(root, signed, hbs):
             return fail(i, "hash-based signature invalid")
+        next_leaf += 1
+        payload = e.get("payload", {})
+        if payload.get("type") == "key_transition":
+            required = {
+                "prev_epoch",
+                "new_epoch",
+                "prev_mldsa_pk",
+                "new_mldsa_pk",
+                "prev_hbs_root",
+                "new_hbs_root",
+                "new_key_signature",
+            }
+            if not required.issubset(payload):
+                return fail(i, "key transition is incomplete")
+            if payload["prev_epoch"] != epoch or base64.b64decode(payload["prev_mldsa_pk"]) != pk:
+                return fail(i, "key transition does not name the active epoch")
+            if bytes.fromhex(payload["prev_hbs_root"]) != root or payload["new_epoch"] != epoch + 1:
+                return fail(i, "key transition has inconsistent epoch keys")
+            statement = {
+                key: value for key, value in payload.items() if key not in {"new_key_signature", "cross_signature"}
+            }
+            new_signed = canonical(statement)
+            new_pk = base64.b64decode(payload["new_mldsa_pk"])
+            new_root = bytes.fromhex(payload["new_hbs_root"])
+            new_sigs = payload["new_key_signature"]
+            if not MLDSA.verify(new_pk, new_signed, base64.b64decode(new_sigs.get("mldsa", ""))):
+                return fail(i, "incoming ML-DSA signature invalid")
+            try:
+                new_hbs = HashSignature.from_dict(new_sigs["hbs"])
+            except Exception:
+                return fail(i, "incoming hash-based signature malformed")
+            if new_hbs.leaf != 0 or not MerkleLamport.verify(new_root, new_signed, new_hbs):
+                return fail(i, "incoming hash-based signature invalid")
+            pk, root, epoch, next_leaf = new_pk, new_root, payload["new_epoch"], 1
     return report
