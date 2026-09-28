@@ -138,9 +138,7 @@ class AuditLedger:
             entry["prev_hash"] = self.entries[current - 1]["hash"]
             header = {key: entry[key] for key in ("index", "timestamp", "prev_hash", "payload")}
             signatures = entry["signatures"]
-            entry["hash"] = _entry_hash(
-                entry["prev_hash"], canonical(header), signatures["mldsa"], signatures["hbs"]
-            )
+            entry["hash"] = _entry_hash(entry["prev_hash"], canonical(header), signatures["mldsa"], signatures["hbs"])
 
     def _append_raw(self, payload: dict, sign: bool) -> dict:
         index = len(self.entries)
