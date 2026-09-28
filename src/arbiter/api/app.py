@@ -11,6 +11,7 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
+from threading import Lock
 from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
@@ -110,6 +111,7 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
     ledger = AuditLedger(keys, data_dir / "ledger.jsonl")
     storage = SQLiteStorage(data_dir / "arbiter.db")
     arbiter = Arbiter(params, ledger=ledger, nonces=storage.nonce_registry())
+    ledger_lock = Lock()
     demo_mode = os.environ.get("ARBITER_DEMO_MODE") == "1"
     if demo_mode:
         logging.getLogger(__name__).warning(
@@ -187,7 +189,8 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
 
     def _verify(t: Transcript, trajectory: bool = False) -> dict:
         try:
-            result = arbiter.verify(t).to_dict(trajectory=trajectory)
+            with ledger_lock:
+                result = arbiter.verify(t).to_dict(trajectory=trajectory)
             storage.save_verdict(t.session_id, result)
             return result
         except ValueError as exc:  # hash-based one-time keys exhausted
@@ -248,7 +251,8 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
 
     @app.get("/ledger/verify")
     def ledger_verify():
-        return ledger.verify().to_dict()
+        with ledger_lock:
+            return ledger.verify().to_dict()
 
     @app.get("/ledger/{index}")
     def ledger_entry(index: int):

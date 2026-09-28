@@ -95,6 +95,11 @@ class SQLiteStorage:
                 );
                 """
             )
+            connection.execute(
+                "UPDATE jobs SET status='failed', progress=1, error='interrupted by server restart', updated_at=? "
+                "WHERE status IN ('queued', 'running')",
+                (_utc_now(),),
+            )
 
     def nonce_registry(self) -> SQLiteNonceRegistry:
         return SQLiteNonceRegistry(self)

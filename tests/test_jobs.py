@@ -41,3 +41,13 @@ def test_job_failure_is_persisted(tmp_path):
     job = storage.job(job_id)
     assert job["status"] == "failed"
     assert job["error"] == "deliberate worker failure"
+
+
+def test_interrupted_jobs_are_marked_failed_on_restart(tmp_path):
+    path = tmp_path / "arbiter.db"
+    storage = SQLiteStorage(path)
+    storage.create_job("interrupted", "compare", {})
+    storage.update_job("interrupted", status="running", progress=0.4)
+    job = SQLiteStorage(path).job("interrupted")
+    assert job["status"] == "failed"
+    assert job["error"] == "interrupted by server restart"

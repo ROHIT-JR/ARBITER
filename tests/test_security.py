@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
@@ -29,6 +31,19 @@ def test_rate_limit_has_retry_after(monkeypatch):
         security.expensive(_request())
     assert error.value.status_code == 429
     assert error.value.headers["Retry-After"] == "59"
+
+
+def test_rate_limit_is_atomic_under_concurrency(monkeypatch):
+    monkeypatch.setenv("ARBITER_RATE_LIMIT", "1")
+    security = Security()
+    def allowed():
+        try:
+            security.expensive(_request(host="same"))
+            return True
+        except HTTPException:
+            return False
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        assert list(pool.map(lambda _: allowed(), range(8))).count(True) == 1
 
 
 def test_cors_configuration_is_opt_in(tmp_path, monkeypatch):
