@@ -30,6 +30,16 @@ def test_compare_endpoint(client):
     assert client.get("/compare", params={"theta": 0, "sessions": 5}).status_code == 422
 
 
+def test_protocol_security_endpoint(client):
+    response = client.get("/security", params={"epsilon": 1e-8, "visibility": 0.9})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["minimum_length"] > 0
+    assert body["bounds"]["epsilon"] <= 1e-8
+    assert body["curve"][-2]["length"] == body["minimum_length"]
+    assert "collective attacks" in body["bounds"]["assumptions"][1]
+
+
 def test_session_verdicts_land_in_ledger(client):
     ok = client.post("/sessions", json={"seed": 1}).json()
     assert ok["decision"] == "ACCEPT" and ok["attribution"] == "legitimate"
