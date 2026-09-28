@@ -58,5 +58,8 @@ def test_job_owner_identity_rejects_another_key(tmp_path, monkeypatch):
     monkeypatch.setenv("ARBITER_API_KEYS", "one,two")
     security = Security()
     storage = SQLiteStorage(tmp_path / "arbiter.db")
-    storage.create_job("job", "compare", {}, security.identity(_request("one")))
-    assert storage.job("job")["owner"] != security.identity(_request("two"))
+    owner = security.identity(_request("one"))
+    storage.create_job("job", "compare", {}, owner)
+    assert "one" not in storage.job("job")["owner"]
+    assert storage.job("job")["owner"] == owner
+    assert owner != security.identity(_request("two"))

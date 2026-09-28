@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import time
+from hashlib import sha256
 from collections import defaultdict
 from threading import Lock
 
@@ -34,4 +35,4 @@ class Security:
 
     def identity(self, request: Request) -> str:
         key = request.headers.get("X-API-Key")
-        return f"key:{key}" if key else f"anonymous:{request.client.host if request.client else 'local'}"
+        return f"key:{sha256(key.encode()).hexdigest()}" if key else f"anonymous:{request.client.host if request.client else 'local'}"
