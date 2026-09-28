@@ -72,7 +72,9 @@ class SQLiteStorage:
                     outcomes BLOB NOT NULL,
                     digest TEXT NOT NULL,
                     message TEXT NOT NULL,
-                    attacked BLOB NOT NULL
+                    attacked BLOB NOT NULL,
+                    attack_onset INTEGER,
+                    burst_length INTEGER
                 );
                 CREATE TABLE IF NOT EXISTS nonces (
                     nonce TEXT PRIMARY KEY,
@@ -99,6 +101,11 @@ class SQLiteStorage:
             columns = {row[1] for row in connection.execute("PRAGMA table_info(jobs)")}
             if "owner" not in columns:
                 connection.execute("ALTER TABLE jobs ADD COLUMN owner TEXT NOT NULL DEFAULT 'anonymous:local'")
+            session_columns = {row[1] for row in connection.execute("PRAGMA table_info(sessions)")}
+            if "attack_onset" not in session_columns:
+                connection.execute("ALTER TABLE sessions ADD COLUMN attack_onset INTEGER")
+            if "burst_length" not in session_columns:
+                connection.execute("ALTER TABLE sessions ADD COLUMN burst_length INTEGER")
             connection.execute(
                 "UPDATE jobs SET status='failed', progress=1, error='interrupted by server restart', updated_at=? "
                 "WHERE status IN ('queued', 'running')",
@@ -120,8 +127,8 @@ class SQLiteStorage:
                 """
                 INSERT OR IGNORE INTO sessions (
                     id, created_at, hypothesis, theta, backend, seed, nonce,
-                    cells, outcomes, digest, message, attacked
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    cells, outcomes, digest, message, attacked, attack_onset, burst_length
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     transcript.session_id,
@@ -136,6 +143,8 @@ class SQLiteStorage:
                     transcript.digest(),
                     transcript.message,
                     _array_bytes(transcript.attacked, np.bool_),
+                    transcript.attack_onset,
+                    transcript.burst_length,
                 ),
             )
 
@@ -154,6 +163,8 @@ class SQLiteStorage:
             theta=float(row["theta"]),
             attacked=_array_from_bytes(row["attacked"], np.bool_),
             backend=row["backend"],
+            attack_onset=row["attack_onset"],
+            burst_length=row["burst_length"],
         )
         if transcript.digest() != row["digest"]:
             raise ValueError(f"stored transcript {session_id} failed its digest check")

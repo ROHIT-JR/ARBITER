@@ -46,6 +46,8 @@ class SessionRequest(BaseModel):
     seed: int | None = None
     message: str = "transfer 100 units to account 42"
     trajectory: bool = Field(False, description="include the sequential log-evidence trajectory")
+    onset: int | None = Field(None, ge=1, description="one-based round at which an adaptive attack begins")
+    bursts: int | None = Field(None, ge=1, description="optional consecutive attacked rounds per random burst")
 
 
 class CertificateRequest(BaseModel):
@@ -178,8 +180,19 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
         return compare_detectors(theta, sessions, seed, params=arbiter.params)
 
     def _run_session(req: SessionRequest):
+        if req.onset is not None and req.onset > req.n_rounds:
+            raise HTTPException(422, "onset must be within n_rounds")
         config = SessionConfig(n_rounds=req.n_rounds, params=arbiter.params)
-        t = simulate_session(req.hypothesis, req.theta, config, req.message, seed=req.seed, backend=req.backend)
+        t = simulate_session(
+            req.hypothesis,
+            req.theta,
+            config,
+            req.message,
+            seed=req.seed,
+            backend=req.backend,
+            onset=req.onset,
+            bursts=req.bursts,
+        )
         storage.save_session(t, seed=req.seed)
         return _verify(t, req.trajectory)
 

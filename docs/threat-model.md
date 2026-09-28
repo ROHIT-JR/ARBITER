@@ -13,7 +13,11 @@ ARBITER makes **statistical claims relative to an explicit model**. This page is
 
 ## Adversaries (in scope)
 
-Each attack is a replacement of the per-round quantum state. It hits a fraction `θ` of rounds, independently from round to round (the individual/collective-attack model):
+Each attack is a replacement of the per-round quantum state. The primary
+unified and sequential tests model a fraction `θ` of rounds independently
+(the individual/collective-attack model). The change-point e-detector also
+covers a single persistent late onset: it restarts likelihood-ratio evidence
+at every candidate round and reports the most likely onset after an alarm.
 
 | Attack | Adversary's capability | What it does to the rounds | Fingerprint |
 |---|---|---|---|
@@ -31,7 +35,8 @@ A verbatim resubmission of an old transcript (a classical replay) is caught sepa
 
 ## Guarantees
 
-- **False-alarm rate ≤ α** for both detectors under the legitimate model. For the unified GLRT this holds by exact Monte-Carlo calibration conditional on the observed round counts. For the sequential test it holds by Ville's inequality, even though it looks at the data after every round. Both are checked empirically in `test_false_alarm_rates_are_controlled`.
+- **False-alarm rate ≤ α** for both primary detectors under the legitimate model. For the unified GLRT this holds by exact Monte-Carlo calibration conditional on the observed round counts. For the sequential test it holds by Ville's inequality, even though it looks at the data after every round. Both are checked empirically in `test_false_alarm_rates_are_controlled`.
+- **Late-onset coverage uses a separate ARL guarantee.** `ChangePointDetector` is a Shiryaev--Roberts-style mixture of likelihood-ratio e-processes, one started at every candidate onset. Its threshold is specified as an average-run-length (ARL) target in rounds (by default, `1 / α` 1200-round sessions), not as a one-session p-value. `tests/test_changepoint.py` checks the configured honest-stream operating point and the reproducible late-onset delay/onset estimates.
 - **Optimality is relative to the model.** For any single alternative `(h, θ)`, the likelihood-ratio test is the most powerful level-α test (Neyman–Pearson). The union alternative is composite, so we use the generalized LRT, which is the standard, asymptotically optimal choice. It is not claimed to be uniformly most powerful.
 - **Measurement optimality is partial, and we quantify it.** For forgery, the PS's projective Pauli measurement reaches the quantum Chernoff bound exactly (efficiency 1.00). For attacks that ARBITER sees mostly through CHSH rounds, the fixed CHSH settings reach 49–70% of the quantum exponent (see the `/bounds` endpoint and `examples/attack_sweep.py`). Closing that gap is listed as future work below.
 
@@ -43,7 +48,7 @@ A verbatim resubmission of an old transcript (a classical replay) is caught sepa
 | Detector blinding / control (Lydersen et al. 2010) | Hardware attack that can extract the full key without raising the error rate | MDI architectures |
 | Trojan horse, timing and power side channels | Physical layer | Optical isolation, constant-time hardware |
 | Fully coherent attacks, asymptotic regime | Still an open research frontier | De Finetti reductions |
-| Adaptive, round-correlated attacks | Break the i.i.d. per-round assumption behind the likelihoods | Future work: robust / minimax tests |
+| Arbitrary adaptive, round-correlated attacks | The change-point detector covers one persistent onset and the simulator can model finite random bursts, but the likelihoods do not prove robustness to an adversary choosing round-by-round behavior from past outcomes, multiple changes, or coordinated quantum memory | Robust / minimax e-processes and correlated-noise calibration |
 | Miscalibrated `v` | The detector assumes the legitimate visibility is known | Periodic recalibration. `arbiter.noise` derives `v` from hardware figures. Per-session estimation is on the roadmap |
 
 ## Future work that follows directly from this model

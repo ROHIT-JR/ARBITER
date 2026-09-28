@@ -63,6 +63,11 @@ class Transcript:
     theta: float
     attacked: np.ndarray
     backend: str
+    # Simulation metadata.  It is deliberately not consumed while calculating
+    # the detector statistic; it lets evaluation code score an estimated
+    # change point against a known injected onset.
+    attack_onset: int | None = None
+    burst_length: int | None = None
 
     def counts(self) -> tuple[np.ndarray, np.ndarray]:
         n = np.bincount(self.cells, minlength=len(CELLS))
@@ -97,19 +102,25 @@ def simulate_session(
     signer_key: bytes = b"arbiter-demo-signing-key",
     seed: int | None = None,
     backend: str = "analytic",
+    onset: int | None = None,
+    bursts: int | None = None,
 ) -> Transcript:
     """Simulate one session. ``seed`` makes it reproducible; it is mixed with the
     scenario so that different scenarios run under the same seed still get
     distinct QRNG nonces (identical calls do reproduce the same nonce, which
     the verifier correctly treats as a resubmission)."""
     config = config or SessionConfig()
+    if onset is not None and not 1 <= onset <= config.n_rounds:
+        raise ValueError("onset must be a one-based round within the session")
+    if bursts is not None and bursts < 1:
+        raise ValueError("bursts must be a positive number of rounds")
     if hypothesis is Hypothesis.LEGITIMATE:
         theta = 0.0
     elif hypothesis in ALL_OR_NOTHING:
         theta = 1.0
     theta = float(theta)
     if seed is not None:
-        scenario = f"{seed}|{hypothesis.value}|{theta!r}|{config.n_rounds}|{message}".encode()
+        scenario = f"{seed}|{hypothesis.value}|{theta!r}|{config.n_rounds}|{message}|{onset}|{bursts}".encode()
         seed = int.from_bytes(hashlib.sha256(scenario).digest()[:4], "big") >> 1
     qrng = QRNG(seed)
     nonce = qrng.token_bytes(32)
@@ -119,7 +130,7 @@ def simulate_session(
     rtypes = rng.choice(3, size=n, p=config.round_mix)
     settings = rng.integers(0, 4, size=n)
     cells = np.where(rtypes == 2, 2 + settings, rtypes).astype(np.int64)
-    attacked = rng.random(n) < theta
+    attacked = _attack_schedule(rng, n, theta, onset=onset, bursts=bursts)
 
     sig_labels = derive_labels(signer_key, b"sig|" + message.encode(), n)
     fresh_labels = derive_labels(nonce, b"fresh", n)
@@ -145,7 +156,61 @@ def simulate_session(
         theta=theta,
         attacked=attacked,
         backend=backend,
+        attack_onset=onset if hypothesis is not Hypothesis.LEGITIMATE else None,
+        burst_length=bursts,
     )
+
+
+def _attack_schedule(
+    rng: np.random.Generator,
+    n_rounds: int,
+    theta: float,
+    *,
+    onset: int | None,
+    bursts: int | None,
+) -> np.ndarray:
+    """Return an attack schedule without exposing it to a detector.
+
+    ``onset`` is deliberately one-based, matching the human-facing round
+    numbers in detector results.  Without ``bursts`` this preserves the
+    original i.i.d. Bernoulli model after the optional honest prefix.  A burst
+    consists of exactly ``bursts`` attacked rounds followed by a geometrically
+    distributed off-run.  This preserves ``theta`` as the long-run attack duty
+    cycle whenever such separated bursts are possible.
+    """
+    attacked = np.zeros(n_rounds, dtype=bool)
+    if theta <= 0:
+        return attacked
+
+    start = 0 if onset is None else onset - 1
+    if bursts is None or bursts == 1:
+        attacked[start:] = rng.random(n_rounds - start) < theta
+        return attacked
+
+    # An exact k-round on period with a *non-empty* off period can represent
+    # duties only up to k / (k + 1).  Below that point choose the geometric
+    # off-run mean k(1-theta)/theta so the long-run duty cycle is theta.
+    k = min(int(bursts), n_rounds - start)
+    if theta < k / (k + 1):
+        off_start_probability = theta / (k * (1 - theta))
+        i = start
+        while i < n_rounds:
+            attacked[i : i + k] = True
+            i += k + int(rng.geometric(off_start_probability))
+        return attacked
+
+    # At high duties an honest off-round after every k-round burst is
+    # mathematically incompatible with theta.  Use random burst starts, which
+    # may touch, rather than silently lowering the requested attack strength.
+    q = theta / (k - theta * (k - 1))
+    i = start
+    while i < n_rounds:
+        if rng.random() < q:
+            attacked[i : i + k] = True
+            i += k
+        else:
+            i += 1
+    return attacked
 
 
 def _round_spec(

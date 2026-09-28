@@ -7,6 +7,8 @@ Decision order:
 3. Unified detector -- level-alpha GLRT with maximum-likelihood attribution.
 The sequential (anytime-valid) result is reported alongside as the
 early-abort view of the same evidence.
+4. Change-point e-detector -- an ARL-controlled view for attacks that begin
+   after an honest prefix.
 """
 
 from __future__ import annotations
@@ -15,6 +17,8 @@ from dataclasses import dataclass
 
 from arbiter.audit_ledger import AuditLedger
 from arbiter.detection import (
+    ChangePointDetector,
+    ChangePointVerdict,
     ChshResult,
     NonceRegistry,
     SequentialDetector,
@@ -40,6 +44,7 @@ class ArbiterVerdict:
     freshness: FreshnessResult
     unified: UnifiedVerdict
     sequential: SequentialVerdict
+    changepoint: ChangePointVerdict
     ledger_entry: dict | None = None
 
     def to_dict(self, trajectory: bool = False) -> dict:
@@ -64,6 +69,7 @@ class ArbiterVerdict:
                 "freshness": self.freshness.to_dict(),
                 "unified": self.unified.to_dict(),
                 "sequential": self.sequential.to_dict(trajectory),
+                "changepoint": self.changepoint.to_dict(trajectory),
             },
             "simulation_ground_truth": {"hypothesis": t.truth.value, "theta": t.theta},
         }
@@ -86,6 +92,7 @@ class Arbiter:
         self.chsh_threshold = chsh_threshold
         self.unified = UnifiedDetector(self.params, alpha)
         self.sequential = SequentialDetector(self.params, alpha)
+        self.changepoint = ChangePointDetector(self.params, alpha)
         self.nonces = nonces or NonceRegistry()
         self.ledger = ledger
 
@@ -95,6 +102,7 @@ class Arbiter:
         fresh = freshness_test(transcript, self.params, self.alpha)
         unified = self.unified.evaluate(transcript)
         sequential = self.sequential.evaluate(transcript)
+        changepoint = self.changepoint.evaluate(transcript)
 
         reasons: list[str] = []
         attribution = unified.attribution
@@ -110,12 +118,19 @@ class Arbiter:
                 f"unified GLRT {unified.statistic:.2f} > {unified.threshold:.2f} (alpha={self.alpha}); "
                 f"most likely: {unified.attribution.value}"
             )
+        if changepoint.rejected:
+            reasons.append(
+                f"change-point e-detector crossed its ARL threshold; attack began ≈ round "
+                f"{changepoint.estimated_onset} ({changepoint.attribution.value})"
+            )
+            if not unified.rejected and nonce_fresh:
+                attribution = changepoint.attribution
         decision = "REJECT" if reasons else "ACCEPT"
         if decision == "ACCEPT":
             attribution = Hypothesis.LEGITIMATE
 
         verdict = ArbiterVerdict(
-            transcript, decision, attribution, reasons, nonce_fresh, chsh, fresh, unified, sequential
+            transcript, decision, attribution, reasons, nonce_fresh, chsh, fresh, unified, sequential, changepoint
         )
         if self.ledger is not None:
             payload = verdict.to_dict()
