@@ -19,3 +19,4 @@ Examples of what's in scope:
 - Ledger keys are stored unencrypted in `$ARBITER_DATA_DIR/ledger_keys.json`. Protect that directory.
 - The Merkle-Lamport key has a fixed capacity: 2^10 entries by default. Once it is exhausted, the API returns HTTP 409 and the keys must be rotated.
 - The API has no authentication. Don't expose it beyond localhost.
+- `POST /pki/scan` is disabled unless `ARBITER_PKI_SCAN=1` and a hostname suffix allowlist is supplied through `ARBITER_PKI_SCAN_ALLOW`. Keep that allowlist narrow; the scanner refuses non-public DNS results, but it still makes outbound connections to approved services.

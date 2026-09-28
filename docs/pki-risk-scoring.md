@@ -15,6 +15,26 @@ for chain in assess_chains(open("bundle.pem", "rb").read()):
 
 It is also available over the API as `POST /pki/assess` (a PEM bundle) and `POST /pki/assess-key`. A linked bundle returns `{"chains": [...]}`; a standalone certificate keeps the original list response. Certificate parsing needs `pip install -e ".[pki]"`.
 
+## Scan public TLS endpoints
+
+The local CLI fetches the certificates offered by public TLS services, records the negotiated TLS version and cipher, then applies the same scoring model:
+
+```bash
+arbiter pki scan example.com:443 api.example.com --json
+arbiter pki scan --hosts-file hosts.txt
+```
+
+The scanner resolves targets once, rejects loopback, private, link-local, multicast, reserved and otherwise non-global addresses, and connects to the resolved IP to prevent DNS rebinding. It intentionally does not validate the TLS chain: expired and self-signed certificates are still useful inventory findings. Python's `ssl` interface does not reliably expose the negotiated key-exchange group, so reports mark it as `unknown`; use an audited `openssl s_client` workflow when that field is essential.
+
+`POST /pki/scan` is disabled by default because it makes outbound connections. Enable it only for a controlled deployment and always set a hostname allowlist:
+
+```bash
+ARBITER_PKI_SCAN=1 ARBITER_PKI_SCAN_ALLOW=example.com,corp.example.com \
+  uvicorn --factory arbiter.api.app:create_app
+```
+
+The allowlist accepts an exact hostname or a subdomain of each suffix. The API returns HTTP 403 when scanning is disabled, no allowlist is configured, a target is outside the allowlist, or DNS resolves to a non-public address.
+
 ## Model
 
 **Shor resources (logical qubits):**
