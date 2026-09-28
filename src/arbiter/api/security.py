@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import os
 import time
-from hashlib import sha256
 from collections import defaultdict
+from hashlib import sha256
 from threading import Lock
 
 from fastapi import HTTPException, Request
@@ -35,4 +35,6 @@ class Security:
 
     def identity(self, request: Request) -> str:
         key = request.headers.get("X-API-Key")
-        return f"key:{sha256(key.encode()).hexdigest()}" if key else f"anonymous:{request.client.host if request.client else 'local'}"
+        if key:
+            return f"key:{sha256(key.encode()).hexdigest()}"
+        return f"anonymous:{request.client.host if request.client else 'local'}"
