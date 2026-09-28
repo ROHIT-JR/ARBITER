@@ -88,6 +88,11 @@ class SQLiteStorage:
                     created_at TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS verdicts_session_id_id ON verdicts(session_id, id DESC);
+                CREATE TABLE IF NOT EXISTS jobs (
+                    id TEXT PRIMARY KEY, kind TEXT NOT NULL, params TEXT NOT NULL,
+                    status TEXT NOT NULL, progress REAL NOT NULL, result TEXT,
+                    error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+                );
                 """
             )
 
@@ -162,6 +167,35 @@ class SQLiteStorage:
                     _utc_now(),
                 ),
             )
+
+    def create_job(self, job_id: str, kind: str, params: dict[str, Any]) -> None:
+        with self._connect() as connection:
+            now = _utc_now()
+            connection.execute(
+                "INSERT INTO jobs VALUES (?, ?, ?, 'queued', 0, NULL, NULL, ?, ?)",
+                (job_id, kind, json.dumps(params), now, now),
+            )
+
+    def update_job(self, job_id: str, *, status: str, progress: float, result=None, error=None) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE jobs SET status=?, progress=?, result=?, error=?, updated_at=? WHERE id=?",
+                (status, progress, json.dumps(result) if result is not None else None, error, _utc_now(), job_id),
+            )
+
+    def job(self, job_id: str) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+        if row is None:
+            return None
+        return {
+            "job_id": row["id"],
+            "kind": row["kind"],
+            "status": row["status"],
+            "progress": row["progress"],
+            "result": json.loads(row["result"]) if row["result"] else None,
+            "error": row["error"],
+        }
 
     def list_sessions(self, limit: int) -> list[dict[str, Any]]:
         with self._connect() as connection:
