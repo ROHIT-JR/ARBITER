@@ -14,7 +14,6 @@ import hashlib
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Literal
 
 import numpy as np
 from qiskit import transpile
@@ -42,30 +41,12 @@ ROUND_TYPES = (RoundType.SIGNATURE, RoundType.FRESHNESS, RoundType.CHSH)
 
 
 @dataclass(frozen=True)
-class DriftConfig:
-    """Configuration for visibility drift during a session.
-
-    type="static_offset": True visibility differs from calibrated by a fixed offset.
-    type="linear_drift": True visibility changes linearly from v_start to v_end.
-    type="step_change": Visibility jumps from v_before to v_after at change_round.
-    """
-
-    type: Literal["static_offset", "linear_drift", "step_change"]
-    true_visibility: float = 0.0  # for static_offset: actual v (calibrated v is in params)
-    v_start: float = 0.0  # for linear_drift: visibility at round 0
-    v_end: float = 0.0  # for linear_drift: visibility at round n_rounds
-    v_before: float = 0.0  # for step_change: visibility before change_round
-    v_after: float = 0.0  # for step_change: visibility after change_round
-    change_round: int = 0  # for step_change: round index where change occurs
-
-
-@dataclass(frozen=True)
 class SessionConfig:
     n_rounds: int = 1200
     round_mix: tuple[float, float, float] = (0.5, 0.25, 0.25)  # sig, fresh, chsh
     params: ChannelParams = field(default_factory=ChannelParams)
     protocol: str = "prf"
-    drift: DriftConfig | None = None
+    periodic_attack_every: int | None = None
 
 
 @dataclass(frozen=True)
@@ -278,26 +259,6 @@ def _distribute_qds_keys_qiskit(
     return eliminated
 
 
-def _get_visibility_at_round(config: SessionConfig, round_idx: int) -> float:
-    """Get the true visibility at a specific round, considering drift config."""
-    if config.drift is None:
-        return config.params.visibility
-
-    drift = config.drift
-    n = config.n_rounds
-    if drift.type == "static_offset":
-        return drift.true_visibility
-    elif drift.type == "linear_drift":
-        t = round_idx / max(n - 1, 1)
-        return drift.v_start + t * (drift.v_end - drift.v_start)
-    elif drift.type == "step_change":
-        if round_idx < drift.change_round:
-            return drift.v_before
-        else:
-            return drift.v_after
-    return config.params.visibility
-
-
 def simulate_session(
     hypothesis: Hypothesis = Hypothesis.LEGITIMATE,
     theta: float = 1.0,
@@ -310,21 +271,20 @@ def simulate_session(
     """Simulate one session. ``seed`` makes it reproducible; it is mixed with the
     scenario so that different scenarios run under the same seed still get
     distinct QRNG nonces (identical calls do reproduce the same nonce, which
-    the verifier correctly treats as a resubmission).
-
-    If ``config.drift`` is provided, the true visibility varies per round
-    according to the drift configuration, while ``config.params.visibility``
-    remains the calibrated (assumed) visibility used by the detector.
-    """
+    the verifier correctly treats as a resubmission)."""
     config = config or SessionConfig()
     protocol = _normalise_protocol(config.protocol)
+    if config.periodic_attack_every is not None and config.periodic_attack_every < 1:
+        raise ValueError("periodic_attack_every must be positive")
     if hypothesis is Hypothesis.LEGITIMATE:
         theta = 0.0
     elif hypothesis in ALL_OR_NOTHING:
         theta = 1.0
     theta = float(theta)
     if seed is not None:
-        scenario = f"{seed}|{hypothesis.value}|{theta!r}|{config.n_rounds}|{message}".encode()
+        scenario = (
+            f"{seed}|{hypothesis.value}|{theta!r}|{config.n_rounds}|{config.periodic_attack_every!r}|{message}"
+        ).encode()
         seed = int.from_bytes(hashlib.sha256(scenario).digest()[:4], "big") >> 1
     qrng = QRNG(seed)
     nonce = qrng.token_bytes(32)
@@ -334,7 +294,16 @@ def simulate_session(
     rtypes = rng.choice(3, size=n, p=config.round_mix)
     settings = rng.integers(0, 4, size=n)
     cells = np.where(rtypes == 2, 2 + settings, rtypes).astype(np.int64)
-    attacked = rng.random(n) < theta
+    # A periodic schedule is a deliberately structured attack fixture.  It
+    # overrides the i.i.d. theta draw and starts at round zero so it is fully
+    # reproducible (and visible to tests) without leaking to any detector.
+    if hypothesis is Hypothesis.LEGITIMATE:
+        attacked = np.zeros(n, dtype=bool)
+    elif hypothesis in ALL_OR_NOTHING or config.periodic_attack_every is None:
+        attacked = rng.random(n) < theta
+    else:
+        attacked = np.arange(n) % config.periodic_attack_every == 0
+        theta = float(attacked.mean())
 
     if protocol == "qds":
         message_bit = hashlib.sha256(message.encode()).digest()[0] & 1
@@ -346,31 +315,12 @@ def simulate_session(
     honest = np.where(rtypes == 0, sig_labels, fresh_labels)
 
     if backend == "analytic":
-        # With drift, compute per-round probabilities using true visibility at each round
-        if config.drift is not None:
-            outcomes = np.zeros(n, dtype=np.int8)
-            for i in range(n):
-                v_true = _get_visibility_at_round(config, i)
-                params_i = ChannelParams(visibility=v_true, storage_visibility=config.params.storage_visibility)
-                legit_i = np.array(_attack_cell_probs(Hypothesis.LEGITIMATE, params_i, protocol))
-                attack_i = np.array(_attack_cell_probs(hypothesis, params_i, protocol))
-                p_i = attack_i[cells[i]] if attacked[i] else legit_i[cells[i]]
-                outcomes[i] = int(rng.random() < p_i)
-        else:
-            legit = np.array(_attack_cell_probs(Hypothesis.LEGITIMATE, config.params, protocol))
-            attack = np.array(_attack_cell_probs(hypothesis, config.params, protocol))
-            p = np.where(attacked, attack[cells], legit[cells])
-            outcomes = (rng.random(n) < p).astype(np.int8)
+        legit = np.array(_attack_cell_probs(Hypothesis.LEGITIMATE, config.params, protocol))
+        attack = np.array(_attack_cell_probs(hypothesis, config.params, protocol))
+        p = np.where(attacked, attack[cells], legit[cells])
+        outcomes = (rng.random(n) < p).astype(np.int8)
     elif backend == "qiskit":
-        # For qiskit backend with drift, we'd need per-round circuits with different noise.
-        # For now, fall back to analytic with drift warning, or use average visibility.
-        if config.drift is not None:
-            # Use average visibility for qiskit (approximation)
-            v_avg = np.mean([_get_visibility_at_round(config, i) for i in range(n)])
-            params_avg = ChannelParams(visibility=v_avg, storage_visibility=config.params.storage_visibility)
-            outcomes = _run_qiskit(hypothesis, rtypes, settings, honest, attacked, params_avg, rng, protocol)
-        else:
-            outcomes = _run_qiskit(hypothesis, rtypes, settings, honest, attacked, config.params, rng, protocol)
+        outcomes = _run_qiskit(hypothesis, rtypes, settings, honest, attacked, config.params, rng, protocol)
     else:
         raise ValueError(f"unknown backend {backend!r}")
 

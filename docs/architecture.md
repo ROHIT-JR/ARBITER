@@ -13,6 +13,7 @@
                          │ chsh.chsh_precheck        Bell-test channel integrity           │
                          │ unified.UnifiedDetector   GLRT + ML attribution (level α)       │
                          │ sequential.SequentialDetector  e-process, alarm/attribution time│
+                         │ temporal.TemporalDetector calibrated burst + Fisher-g tests      │
                          │ bounds.attack_bounds      Helstrom / quantum Chernoff limits    │
                          └───────────────────────────────┬──────────────────────────────────┘
                                                          │ ArbiterVerdict   (pipeline.py)
@@ -32,6 +33,7 @@
 - **One likelihood model, two simulators.** The detector's likelihoods come from `model.py`. `protocol.py` can sample sessions either from those same Born-rule probabilities (`analytic`, which is fast and used for calibration and sweeps) or by running the real circuits (`qiskit`). `test_qiskit_circuits_match_density_matrix_model` keeps them in agreement, so any demo can be rerun on circuits.
 - **Transcripts are the interface.** Detectors see only `(cell, outcome)` per round. Ground truth (`truth`, `theta`, `attacked`) is stored for evaluation and never read by the detector.
 - **Sufficient statistics.** The fixed-sample test needs only the per-cell counts, so threshold calibration is a vectorized binomial draw, taking milliseconds per session.
+- **Ordered-stream diagnostics stay separate.** `temporal.py` sees ordered outcomes only to calculate sliding moments and calibrated burst/periodicity tests.  It conditions its Monte-Carlo null on the observed cell schedule, uses no model training, and returns JSON-safe diagnostics for the dashboard.  The pipeline allocates overall α by Bonferroni across its GLRT, freshness and temporal rejection paths; inside the temporal path it splits again over three streams and three statistics.
 - **Deterministic by seed.** `simulate_session(seed=...)` reproduces the nonce, the schedule and the outcomes exactly.
 
 ## Extension points

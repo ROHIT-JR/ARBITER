@@ -8,6 +8,7 @@ import EvidenceChart from "./components/EvidenceChart";
 import LedgerPanel from "./components/LedgerPanel";
 import SecurityPanel from "./components/SecurityPanel";
 import SessionForm from "./components/SessionForm";
+import TemporalPanel from "./components/TemporalPanel";
 import VerdictPanel from "./components/VerdictPanel";
 
 export default function App() {
@@ -156,6 +157,10 @@ export default function App() {
           ) : (
             <p className="muted">The anytime-valid log-evidence trajectory appears here.</p>
           )}
+        </section>
+
+        <section className="card span-3">
+          {verdict ? <TemporalPanel temporal={verdict.layers.temporal} /> : <><h2>Temporal mismatch rates</h2><p className="muted">Run a session to inspect burst and periodic-interference diagnostics.</p></>}
         </section>
 
         <section className="card span-2">

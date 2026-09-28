@@ -48,6 +48,11 @@ class SessionRequest(BaseModel):
     seed: int | None = None
     message: str = "transfer 100 units to account 42"
     trajectory: bool = Field(False, description="include the sequential log-evidence trajectory")
+    periodic_attack_every: int | None = Field(
+        None,
+        ge=1,
+        description="structured attack fixture: attack every k-th round (ignored for legitimate/all-or-nothing cases)",
+    )
 
 
 class CertificateRequest(BaseModel):
@@ -201,7 +206,12 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
         return compare_detectors(theta, sessions, seed, params=arbiter.params)
 
     def _run_session(req: SessionRequest):
-        config = SessionConfig(n_rounds=req.n_rounds, params=arbiter.params, protocol=req.protocol)
+        config = SessionConfig(
+            n_rounds=req.n_rounds,
+            params=arbiter.params,
+            protocol=req.protocol,
+            periodic_attack_every=req.periodic_attack_every,
+        )
         t = simulate_session(req.hypothesis, req.theta, config, req.message, seed=req.seed, backend=req.backend)
         storage.save_session(t, seed=req.seed)
         return _verify(t, req.trajectory)
