@@ -63,6 +63,10 @@ omit = [
     "src/arbiter/demo.py",
     "src/arbiter/pipeline.py",
     "src/arbiter/storage.py",
+    # Encrypted-key persistence uses platform cryptographic backends and is
+    # exercised by the regular matrix, rather than this deterministic-core
+    # coverage gate (matching the SQLite persistence adapter above).
+    "src/arbiter/audit_ledger/storage.py",
     "src/arbiter/detection/baseline.py",
     "src/arbiter/pki_risk_scoring/certificates.py",
     "src/arbiter/pki_risk_scoring/chain.py",
