@@ -75,3 +75,9 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run build
+      - run: npm run sync:demo
+      - name: Assert all built dashboard assets make no external requests
+        run: >-
+          node --input-type=module -e 'import { readdirSync, readFileSync } from "node:fs"; import { join } from "node:path"; const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => entry.isDirectory() ? walk(join(dir, entry.name)) : [join(dir, entry.name)]); const external = "(?:https?:)?\\/\\/(?!127\\.0\\.0\\.1(?::\\d+)?(?:\\/|$)|localhost(?::\\d+)?(?:\\/|$))"; for (const file of walk("dist").filter((path) => /\.(html|css|js)$/.test(path))) { const body = readFileSync(file, "utf8"); const pattern = file.endsWith(".js") ? new RegExp(`(?:fetch|sendBeacon|open|WebSocket)\\s*\\(\\s*["\x27]${external}`, "i") : new RegExp(external, "i"); if (pattern.test(body)) throw new Error(`dashboard asset makes an external request: ${file}`); }'
+      - name: Assert packaged dashboard assets are current
+        run: git diff --exit-code -- src/arbiter/dashboard

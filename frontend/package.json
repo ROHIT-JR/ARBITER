@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "sync:demo": "node scripts/sync-dashboard.mjs",
     "preview": "vite preview",
     "typecheck": "tsc -b"
   },

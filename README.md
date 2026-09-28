@@ -98,6 +98,21 @@ uvicorn --factory arbiter.api.app:create_app --port 8000   # API; open http://12
 cd frontend && npm install && npm run dev   # http://localhost:5173
 ```
 
+**Offline finale demo:** build the dashboard once while preparing the release,
+then use only Python at the venue:
+
+```bash
+cd frontend && npm ci && npm run build && npm run sync:demo
+cd ..
+arbiter demo --check  # deterministic, headless pre-flight
+arbiter demo          # opens http://127.0.0.1:8000/ with throwaway local data
+```
+
+The launcher serves `frontend/dist` itself, uses no CDN resources, and enables
+the ledger tamper controls only for its localhost demo process.  See
+[the timed demo script](docs/demo-script.md) for the five-minute walkthrough
+and recording fallback.
+
 **Notebook:** [notebooks/arbiter_demo.ipynb](notebooks/arbiter_demo.ipynb) is committed with its outputs, so you can read it on GitHub. Rebuild it with `python notebooks/build_demo.py`.
 
 **From Python:**

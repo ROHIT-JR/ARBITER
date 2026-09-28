@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "id": "legitimate",
+      "title": "1. Legitimate session",
+      "kind": "session",
+      "request": {"hypothesis": "legitimate", "theta": 1, "n_rounds": 1200, "backend": "analytic", "seed": 101, "trajectory": true},
+      "expected": {"decision": "ACCEPT", "attribution": "legitimate"}
+    },
+    {
+      "id": "forgery",
+      "title": "2. Forgery alarm",
+      "kind": "session",
+      "request": {"hypothesis": "forgery", "theta": 1, "n_rounds": 1200, "backend": "analytic", "seed": 202, "trajectory": true},
+      "expected": {"decision": "REJECT", "attribution": "forgery", "layers.sequential.rejected": true, "layers.sequential.stopped_at": {"at_most": 20}}
+    },
+    {
+      "id": "replay_qiskit",
+      "title": "3. Replay (Qiskit backend)",
+      "kind": "session",
+      "request": {"hypothesis": "replay", "theta": 1, "n_rounds": 200, "backend": "qiskit", "seed": 303, "trajectory": true},
+      "expected": {"decision": "REJECT", "attribution": "replay", "session.backend": "qiskit"}
+    },
+    {
+      "id": "resubmit",
+      "title": "4. Resubmit last transcript",
+      "kind": "resubmit",
+      "source": "legitimate",
+      "expected": {"decision": "REJECT", "attribution": "replay", "layers.nonce_fresh": false}
+    },
+    {
+      "id": "tamper",
+      "title": "5. Tamper a ledger entry",
+      "kind": "tamper",
+      "source": "forgery",
+      "request": {"field": "decision", "value": "ACCEPT", "recompute_hashes": false},
+      "expected": {"ok": false, "first_bad_index": {"at_least": 1}}
+    },
+    {
+      "id": "accuracy",
+      "title": "6. Cached accuracy comparison",
+      "kind": "accuracy",
+      "expected": {"metadata.theta": 0.3, "metadata.sessions_per_hypothesis": 20, "detectors.unified.attacks.replay.correct_attribution_rate": 1.0},
+      "cached_result": {
+        "metadata": {"theta": 0.3, "sessions_per_hypothesis": 20, "seed": 26141, "n_rounds": 1200, "alpha": 0.01, "cell_counts": [600, 300, 75, 75, 75, 75], "design": "balanced paired Monte Carlo"},
+        "labels": ["legitimate", "forgery", "impersonation", "replay", "channel_manipulation"],
+        "detectors": {
+          "unified": {"false_alarm_rate": 0.0, "confusion_matrix": {"legitimate": {"legitimate": 20, "forgery": 0, "impersonation": 0, "replay": 0, "channel_manipulation": 0}, "forgery": {"legitimate": 0, "forgery": 20, "impersonation": 0, "replay": 0, "channel_manipulation": 0}, "impersonation": {"legitimate": 0, "forgery": 0, "impersonation": 20, "replay": 0, "channel_manipulation": 0}, "replay": {"legitimate": 0, "forgery": 0, "impersonation": 0, "replay": 20, "channel_manipulation": 0}, "channel_manipulation": {"legitimate": 0, "forgery": 0, "impersonation": 0, "replay": 0, "channel_manipulation": 20}}, "attacks": {"forgery": {"detection_rate": 1, "correct_attribution_rate": 1}, "impersonation": {"detection_rate": 1, "correct_attribution_rate": 1}, "replay": {"detection_rate": 1, "correct_attribution_rate": 1}, "channel_manipulation": {"detection_rate": 1, "correct_attribution_rate": 1}}},
+          "baseline": {"false_alarm_rate": 0.05, "confusion_matrix": {"legitimate": {"legitimate": 19, "forgery": 0, "impersonation": 0, "replay": 0, "channel_manipulation": 1}, "forgery": {"legitimate": 0, "forgery": 20, "impersonation": 0, "replay": 0, "channel_manipulation": 0}, "impersonation": {"legitimate": 0, "forgery": 20, "impersonation": 0, "replay": 0, "channel_manipulation": 0}, "replay": {"legitimate": 0, "forgery": 7, "impersonation": 0, "replay": 13, "channel_manipulation": 0}, "channel_manipulation": {"legitimate": 0, "forgery": 20, "impersonation": 0, "replay": 0, "channel_manipulation": 0}}, "attacks": {"forgery": {"detection_rate": 1, "correct_attribution_rate": 1}, "impersonation": {"detection_rate": 1, "correct_attribution_rate": 0}, "replay": {"detection_rate": 1, "correct_attribution_rate": 0.65}, "channel_manipulation": {"detection_rate": 1, "correct_attribution_rate": 0}}}
+        },
+        "curve": [
+          {"theta": 0.05, "unified": [0.4, 1, 0.35, 0.15], "baseline": [0.4, 0, 0.3, 0]},
+          {"theta": 0.1, "unified": [1, 1, 0.75, 0.95], "baseline": [1, 0, 0.8, 0]},
+          {"theta": 0.2, "unified": [1, 1, 1, 1], "baseline": [1, 0, 0.9, 0]},
+          {"theta": 0.3, "unified": [1, 1, 1, 1], "baseline": [1, 0, 0.65, 0]},
+          {"theta": 0.5, "unified": [1, 1, 1, 1], "baseline": [1, 0, 0.15, 0]},
+          {"theta": 0.7, "unified": [1, 1, 1, 1], "baseline": [1, 0, 0, 0]},
+          {"theta": 1, "unified": [1, 1, 1, 1], "baseline": [1, 0, 0, 0]}
+        ]
+      }
+    },
+    {
+      "id": "hardware",
+      "title": "7. Cached hardware result",
+      "kind": "hardware",
+      "optional": true,
+      "cached_result": null,
+      "expected": {}
+    }
+  ]
+}
