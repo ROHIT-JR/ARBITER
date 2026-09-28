@@ -68,6 +68,45 @@ def _self_signed(key, days: int):
     return cert.public_bytes(Encoding.PEM)
 
 
+def _certificate(subject, issuer, subject_key, issuer_key, days: int, *, hash_algorithm, ca: bool):
+    """Test-only certificate-chain helper used by API regression tests."""
+    from cryptography import x509
+    from cryptography.hazmat.primitives.serialization import Encoding
+    from cryptography.x509.oid import NameOID
+
+    now = datetime.now(timezone.utc)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, subject)])
+    issuer_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, issuer)])
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(issuer_name)
+        .public_key(subject_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(days=1))
+        .not_valid_after(now + timedelta(days=days))
+        .add_extension(x509.BasicConstraints(ca=ca, path_length=None), critical=True)
+        .add_extension(x509.SubjectKeyIdentifier.from_public_key(subject_key.public_key()), critical=False)
+        .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(issuer_key.public_key()), critical=False)
+        .sign(issuer_key, hash_algorithm)
+    )
+    return builder, builder.public_bytes(Encoding.PEM)
+
+
+def _rsa_chain(*, leaf_hash=None, pqc_leaf: bool = False):
+    """Return a small CA/leaf fixture used by the API test module."""
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec, rsa
+
+    root_key = rsa.generate_private_key(65537, 2048)
+    leaf_key = ec.generate_private_key(ec.SECP384R1())
+    root, root_pem = _certificate("root", "root", root_key, root_key, 365 * 20, hash_algorithm=hashes.SHA256(), ca=True)
+    _, leaf_pem = _certificate(
+        "leaf", "root", leaf_key, root_key, 365, hash_algorithm=leaf_hash or hashes.SHA256(), ca=False
+    )
+    return root, leaf_key, leaf_pem, root_pem
+
+
 def test_certificate_bundle_parsing():
     pytest.importorskip("cryptography")
     from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
