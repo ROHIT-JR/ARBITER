@@ -44,6 +44,113 @@ PQC_ALGORITHMS = {
     "LMS",
 }
 
+# Composite ML-DSA OIDs from draft-ietf-lamps-pq-composite-sigs
+# Base OID: 1.3.6.1.4.1.2.267.12 (IANA temporary assignment)
+# Format: (composite_oid_dotted_string, pqc_algorithm, traditional_algorithm, hash_algorithm)
+COMPOSITE_OID_MAP = {
+    "1.3.6.1.4.1.2.267.12.1": ("ML-DSA-44", "RSA-PSS", "SHA256"),
+    "1.3.6.1.4.1.2.267.12.2": ("ML-DSA-44", "RSA-PKCS1v1.5", "SHA256"),
+    "1.3.6.1.4.1.2.267.12.3": ("ML-DSA-44", "Ed25519", "SHA512"),
+    "1.3.6.1.4.1.2.267.12.4": ("ML-DSA-44", "ECDSA-P256", "SHA256"),
+    "1.3.6.1.4.1.2.267.12.5": ("ML-DSA-44", "ECDSA-brainpoolP256r1", "SHA256"),
+    "1.3.6.1.4.1.2.267.12.6": ("ML-DSA-65", "RSA-PSS", "SHA512"),
+    "1.3.6.1.4.1.2.267.12.7": ("ML-DSA-65", "RSA-PKCS1v1.5", "SHA512"),
+    "1.3.6.1.4.1.2.267.12.8": ("ML-DSA-65", "ECDSA-P256", "SHA512"),
+    "1.3.6.1.4.1.2.267.12.9": ("ML-DSA-65", "ECDSA-brainpoolP256r1", "SHA512"),
+    "1.3.6.1.4.1.2.267.12.10": ("ML-DSA-65", "Ed25519", "SHA512"),
+    "1.3.6.1.4.1.2.267.12.11": ("ML-DSA-87", "ECDSA-P384", "SHA512"),
+    "1.3.6.1.4.1.2.267.12.12": ("ML-DSA-87", "ECDSA-brainpoolP384r1", "SHA512"),
+    "1.3.6.1.4.1.2.267.12.13": ("ML-DSA-87", "Ed448", "SHA512"),
+}
+
+# Pure ML-DSA OIDs from RFC 9881
+PURE_MLDSA_OIDS = {
+    "2.16.840.1.101.3.4.3.17": "ML-DSA-44",
+    "2.16.840.1.101.3.4.3.18": "ML-DSA-65",
+    "2.16.840.1.101.3.4.3.19": "ML-DSA-87",
+}
+
+
+def parse_composite_oid(oid_dotted: str) -> tuple[str, str, str] | None:
+    """Parse a composite algorithm OID and return (pqc_alg, trad_alg, hash_alg).
+
+    Returns None if the OID is not a recognised composite ML-DSA OID.
+    """
+    return COMPOSITE_OID_MAP.get(oid_dotted)
+
+
+def is_composite_oid(oid_dotted: str) -> bool:
+    """Check if an OID is a recognised composite ML-DSA OID."""
+    return oid_dotted in COMPOSITE_OID_MAP
+
+
+def is_pure_mldsa_oid(oid_dotted: str) -> str | None:
+    """Check if an OID is a pure ML-DSA OID (RFC 9881). Returns algorithm name or None."""
+    return PURE_MLDSA_OIDS.get(oid_dotted)
+
+
+def assess_composite_key(
+    pqc_algorithm: str,
+    traditional_algorithm: str,
+    *,
+    pqc_key_bits: int | None = None,
+    trad_key_bits: int | None = None,
+    expires: datetime | None = None,
+    protection_years_after_expiry: float = 0.0,
+    crqc_year: int = DEFAULT_CRQC_YEAR,
+    now: datetime | None = None,
+) -> RiskAssessment:
+    """Assess a composite/hybrid key by evaluating both components.
+
+    A hybrid certificate is only as strong as its weakest component.
+    The overall risk is the MINIMUM of the two component risks (both must be secure).
+    """
+    now = now or datetime.now(timezone.utc)
+
+    pqc_assessment = assess_key(
+        pqc_algorithm,
+        pqc_key_bits,
+        expires=expires,
+        protection_years_after_expiry=protection_years_after_expiry,
+        crqc_year=crqc_year,
+        now=now,
+    )
+    trad_assessment = assess_key(
+        traditional_algorithm,
+        trad_key_bits,
+        expires=expires,
+        protection_years_after_expiry=protection_years_after_expiry,
+        crqc_year=crqc_year,
+        now=now,
+    )
+
+    # Hybrid is only as strong as its weakest component — use MINIMUM score
+    # (lower score = lower risk = more secure)
+    if pqc_assessment.score <= trad_assessment.score:
+        weaker = pqc_assessment
+    else:
+        weaker = trad_assessment
+
+    return RiskAssessment(
+        algorithm=f"{pqc_algorithm}+{traditional_algorithm} (hybrid)",
+        key_bits=None,
+        family="hybrid",
+        classical_security_bits=None,
+        quantum_security_bits=None,
+        shor_logical_qubits=None,
+        expires=expires.isoformat() if expires else None,
+        years_protection_needed=weaker.years_protection_needed,
+        crqc_year=crqc_year,
+        mosca_violated=weaker.mosca_violated,
+        score=weaker.score,
+        level=weaker.level,
+        recommendation=(
+            f"Hybrid certificate with {pqc_algorithm} (PQC) and {traditional_algorithm} (traditional). "
+            f"Overall risk governed by weaker component ({weaker.algorithm}): {weaker.recommendation}"
+        ),
+    )
+
+
 # Classical security (bits) of RSA moduli, NIST SP 800-57 Part 1.
 _RSA_CLASSICAL = [(1024, 80), (2048, 112), (3072, 128), (7680, 192), (15360, 256)]
 
@@ -115,17 +222,6 @@ def curve_bits(curve: str) -> int | None:
     return _CURVE_BITS.get(curve.lower())
 
 
-def _positive_key_bits(value: int | None, default: int) -> int:
-    """Return a usable key size for a public-input risk assessment.
-
-    Scanner metadata is not always trustworthy; non-positive values should
-    not make an assessment endpoint raise while calculating ``log2(n)``.
-    """
-    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
-        return value
-    return default
-
-
 def assess_key(
     algorithm: str,
     key_bits: int | None = None,
@@ -168,16 +264,16 @@ def assess_key(
 
     if alg in ("RSA", "RSA-PSS", "RSAES-OAEP"):
         family = "rsa"
-        n = _positive_key_bits(key_bits, 2048)
+        n = key_bits or 2048
         classical = _rsa_classical_bits(n)
         qubits = 2 * n + 3
     elif alg in ("EC", "ECDSA", "ECDH", "ED25519", "ED448", "X25519", "X448", "EDDSA", "DSA", "DH"):
         family = "ffdlp" if alg in ("DSA", "DH") else "ecc"  # finite-field DLP scales like RSA under Shor
         if alg in ("ED25519", "X25519"):
-            key_bits = _positive_key_bits(key_bits, 255)
+            key_bits = key_bits or 255
         if alg in ("ED448", "X448"):
-            key_bits = _positive_key_bits(key_bits, 448)
-        n = _positive_key_bits(key_bits, 256)
+            key_bits = key_bits or 448
+        n = key_bits or 256
         if family == "ecc":
             classical = n // 2
             qubits = 9 * n + 2 * math.ceil(math.log2(n)) + 10

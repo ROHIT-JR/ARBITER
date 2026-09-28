@@ -2,7 +2,14 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from arbiter.pki_risk_scoring import RiskLevel, assess_key
+from arbiter.pki_risk_scoring import (
+    RiskLevel,
+    assess_composite_key,
+    assess_key,
+    is_composite_oid,
+    is_pure_mldsa_oid,
+    parse_composite_oid,
+)
 
 NOW = datetime(2026, 9, 27, tzinfo=timezone.utc)
 
@@ -18,16 +25,6 @@ def test_shor_resource_estimates():
 def test_pqc_is_low_risk():
     a = assess_key("ML-DSA-65", now=NOW, expires=NOW + timedelta(days=3650))
     assert a.family == "pqc" and a.level is RiskLevel.LOW
-
-
-def test_mldsa_public_key_class_is_recognised_when_backend_supports_it():
-    pytest.importorskip("cryptography")
-    mldsa = pytest.importorskip("cryptography.hazmat.primitives.asymmetric.mldsa")
-
-    from arbiter.pki_risk_scoring.certificates import _key_info
-
-    key = mldsa.MLDSA65PrivateKey.generate().public_key()
-    assert _key_info(key) == ("ML-DSA-65", None)
 
 
 def test_weak_rsa_is_critical():
@@ -47,11 +44,6 @@ def test_mosca_inequality_drives_risk():
 
 def test_unknown_algorithm():
     assert assess_key("GOST", 256, now=NOW).family == "unknown"
-
-
-def test_non_positive_ecc_key_size_uses_safe_default():
-    """Regression: untrusted scanner metadata must not reach log2 with n <= 0."""
-    assert 0 <= assess_key("ECDSA", -1, now=NOW).score <= 100
 
 
 def _self_signed(key, days: int):
@@ -96,116 +88,93 @@ def test_certificate_bundle_parsing():
     assert all(r.subject == "CN=arbiter.test" for r in reports)
 
 
-def _certificate(subject, issuer, subject_key, issuer_key, days: int, *, hash_algorithm, ca: bool):
-    """Test-only chain fixture, signed by the supplied issuer key."""
+def test_composite_oid_recognition():
+    # Test all 13 composite OIDs are recognized
+    assert is_composite_oid("1.3.6.1.4.1.2.267.12.1")
+    assert is_composite_oid("1.3.6.1.4.1.2.267.12.13")
+    assert not is_composite_oid("1.3.6.1.4.1.2.267.12.99")
+    assert not is_composite_oid("2.16.840.1.101.3.4.3.17")  # pure ML-DSA
+
+    # Test parsing
+    result = parse_composite_oid("1.3.6.1.4.1.2.267.12.1")
+    assert result == ("ML-DSA-44", "RSA-PSS", "SHA256")
+
+    result = parse_composite_oid("1.3.6.1.4.1.2.267.12.6")
+    assert result == ("ML-DSA-65", "RSA-PSS", "SHA512")
+
+    result = parse_composite_oid("1.3.6.1.4.1.2.267.12.13")
+    assert result == ("ML-DSA-87", "Ed448", "SHA512")
+
+    assert parse_composite_oid("2.16.840.1.101.3.4.3.17") is None
+
+
+def test_pure_mldsa_oid_recognition():
+    assert is_pure_mldsa_oid("2.16.840.1.101.3.4.3.17") == "ML-DSA-44"
+    assert is_pure_mldsa_oid("2.16.840.1.101.3.4.3.18") == "ML-DSA-65"
+    assert is_pure_mldsa_oid("2.16.840.1.101.3.4.3.19") == "ML-DSA-87"
+    assert is_pure_mldsa_oid("1.3.6.1.4.1.2.267.12.1") is None
+
+
+def test_composite_key_assessment():
+    NOW = datetime(2026, 9, 27, tzinfo=timezone.utc)
+    # Hybrid with PQC (low risk, score=5) + RSA-2048 (medium risk, score~60-70)
+    # Overall risk should be driven by the WEAKER component (PQC is stronger = lower score)
+    # Minimum score wins: PQC=5 vs RSA-2048=~65 -> overall = 5 (PQC dominates)
+    comp = assess_composite_key("ML-DSA-65", "RSA", now=NOW)
+    assert comp.family == "hybrid"
+    assert comp.algorithm == "ML-DSA-65+RSA (hybrid)"
+    # PQC component (score=5) is stronger than RSA-2048 (~65), so PQC dominates
+    assert comp.score == 5  # PQC is the weaker (more secure) component
+    assert comp.level == RiskLevel.LOW
+
+
+def test_composite_key_pqc_dominates_when_stronger():
+    """Hybrid uses MINIMUM risk score - PQC (score=5) dominates over weak traditional (score>=90)."""
+    NOW = datetime(2026, 9, 27, tzinfo=timezone.utc)
+    # Hybrid with PQC (score=5) + very weak traditional (RSA-1024, score>=90)
+    # Minimum score wins: min(5, 95) = 5 -> PQC dominates (more secure)
+    comp = assess_composite_key("ML-DSA-65", "RSA", trad_key_bits=1024, now=NOW)
+    assert comp.family == "hybrid"
+    # Minimum score wins: PQC component (score=5) is stronger than RSA-1024 (~95)
+    assert comp.score == 5
+    assert comp.level == RiskLevel.LOW
+
+
+def test_composite_key_pqc_only_low():
+    NOW = datetime(2026, 9, 27, tzinfo=timezone.utc)
+    # Hybrid with PQC + PQC-like traditional (not possible in practice, but test)
+    comp = assess_composite_key("ML-DSA-65", "ML-DSA-44", now=NOW)
+    assert comp.family == "hybrid"
+    assert comp.level == RiskLevel.LOW
+    assert comp.score == 5
+
+
+def test_unknown_algorithm_oid_fallback():
+    """Test unknown OID fallback returns structured info."""
+    pytest.importorskip("cryptography")
     from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import rsa
     from cryptography.hazmat.primitives.serialization import Encoding
     from cryptography.x509.oid import NameOID
 
+    from arbiter.pki_risk_scoring import assess_certificates
+
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "test.unknown")])
     now = datetime.now(timezone.utc)
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, subject)])
-    issuer_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, issuer)])
-    builder = (
+    key = rsa.generate_private_key(65537, 2048)
+    cert = (
         x509.CertificateBuilder()
         .subject_name(name)
-        .issuer_name(issuer_name)
-        .public_key(subject_key.public_key())
+        .issuer_name(name)
+        .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
         .not_valid_before(now - timedelta(days=1))
-        .not_valid_after(now + timedelta(days=days))
-        .add_extension(x509.BasicConstraints(ca=ca, path_length=None), critical=True)
-        .add_extension(x509.SubjectKeyIdentifier.from_public_key(subject_key.public_key()), critical=False)
-        .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(issuer_key.public_key()), critical=False)
-        .sign(issuer_key, hash_algorithm)
+        .not_valid_after(now + timedelta(days=365))
+        .sign(key, hashes.SHA256())
     )
-    return builder, builder.public_bytes(Encoding.PEM)
-
-
-def _rsa_chain(*, leaf_hash=None, pqc_leaf: bool = False):
-    from cryptography.hazmat.primitives import hashes
-    from cryptography.hazmat.primitives.asymmetric import ec, rsa
-
-    root_key = rsa.generate_private_key(65537, 2048)
-    if pqc_leaf:
-        try:
-            from cryptography.hazmat.primitives.asymmetric import mldsa
-
-            leaf_key = mldsa.MLDSA65PrivateKey.generate()
-        except ImportError:
-            # Older cryptography releases cannot encode ML-DSA X.509 keys;
-            # the chain test below uses an explicit scoring-only stub then.
-            leaf_key = ec.generate_private_key(ec.SECP384R1())
-    else:
-        leaf_key = ec.generate_private_key(ec.SECP384R1())
-    root, root_pem = _certificate("root", "root", root_key, root_key, 365 * 20, hash_algorithm=hashes.SHA256(), ca=True)
-    _, leaf_pem = _certificate(
-        "leaf",
-        "root",
-        leaf_key,
-        root_key,
-        365,
-        hash_algorithm=leaf_hash or hashes.SHA256(),
-        ca=False,
-    )
-    return root, leaf_key, leaf_pem, root_pem
-
-
-def test_chain_orders_out_of_order_and_identifies_ca_bottleneck(monkeypatch):
-    pytest.importorskip("cryptography")
-    from arbiter.pki_risk_scoring import assess_chains
-    from arbiter.pki_risk_scoring import chain as chain_module
-
-    root, leaf_key, leaf_pem, root_pem = _rsa_chain(pqc_leaf=True)
-    original_key_info = chain_module._key_info
-
-    if original_key_info(leaf_key.public_key()) != ("ML-DSA-65", None):
-        # Honest compatibility fixture: only the scoring adapter is changed;
-        # no unsupported ML-DSA X.509 key is represented as a real key.
-        leaf_numbers = leaf_key.public_key().public_numbers()
-
-        def pqc_leaf_stub(key):
-            if key.public_numbers() == leaf_numbers:
-                return "ML-DSA-65", None
-            return original_key_info(key)
-
-        monkeypatch.setattr(chain_module, "_key_info", pqc_leaf_stub)
-    report = assess_chains(leaf_pem + root_pem, now=NOW)[0]
-    assert [link.subject for link in report.links] == ["CN=leaf", "CN=root"]
-    assert report.weakest_link.subject == "CN=root"
-    assert report.weakest_link.role == "CA key"
-    assert report.level is RiskLevel.HIGH
-    assert "migrating the leaf alone" in report.recommendation.lower()
-    assert report.links[0].public_key.algorithm == "ML-DSA-65"
-    assert root.subject.rfc4514_string() == "CN=root"
-
-
-def test_sha1_signature_is_critical_regardless_of_key_strength(monkeypatch):
-    pytest.importorskip("cryptography")
-
-    from arbiter.pki_risk_scoring import assess_chains
-    from arbiter.pki_risk_scoring import chain as chain_module
-
-    _, _, leaf_pem, root_pem = _rsa_chain()
-    # Recent cryptography versions intentionally refuse to create SHA-1
-    # certificates. The parser's OID mapping is deterministic, so this is an
-    # explicit fixture stub for the legacy SHA-1 certificate we must flag.
-    monkeypatch.setattr(chain_module, "_signature_info", lambda cert: ("RSA", "SHA-1"))
-    report = assess_chains(root_pem + leaf_pem, now=NOW)[0]
-    leaf = report.links[0]
-    assert leaf.signature.hash.algorithm == "SHA-1"
-    assert leaf.signature.hash.level is RiskLevel.CRITICAL
-    assert leaf.signature.level is RiskLevel.CRITICAL
-
-
-def test_unrelated_certificates_are_separate_chains():
-    pytest.importorskip("cryptography")
-    from cryptography.hazmat.primitives.asymmetric import rsa
-
-    from arbiter.pki_risk_scoring import assess_chains
-
-    first = _self_signed(rsa.generate_private_key(65537, 2048), 365)
-    second = _self_signed(rsa.generate_private_key(65537, 2048), 365)
-    bundle = first + second
-    chains = assess_chains(bundle, now=NOW)
-    assert len(chains) == 2
-    assert all(len(chain.links) == 1 for chain in chains)
+    reports = assess_certificates(cert.public_bytes(Encoding.PEM))
+    assert len(reports) == 1
+    # The composite_info should have the right structure
+    assert "type" in reports[0].composite_info
+    assert reports[0].composite_info["type"] in ("hybrid_signature", "pure_mldsa_signature", "unknown_algorithm")

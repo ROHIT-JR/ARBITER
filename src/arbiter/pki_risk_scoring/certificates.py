@@ -9,7 +9,15 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 
-from arbiter.pki_risk_scoring.scoring import DEFAULT_CRQC_YEAR, RiskAssessment, assess_key, curve_bits
+from arbiter.pki_risk_scoring.scoring import (
+    DEFAULT_CRQC_YEAR,
+    RiskAssessment,
+    assess_composite_key,
+    assess_key,
+    curve_bits,
+    is_pure_mldsa_oid,
+    parse_composite_oid,
+)
 
 _PEM_BLOCK = re.compile(rb"-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----", re.S)
 
@@ -22,9 +30,10 @@ class CertificateReport:
     not_after: str
     signature_algorithm: str
     public_key: RiskAssessment
+    composite_info: dict | None = None
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "subject": self.subject,
             "issuer": self.issuer,
             "serial": self.serial,
@@ -32,6 +41,9 @@ class CertificateReport:
             "signature_algorithm": self.signature_algorithm,
             "public_key": self.public_key.to_dict(),
         }
+        if self.composite_info is not None:
+            d["composite_info"] = self.composite_info
+        return d
 
 
 def _key_info(public_key) -> tuple[str, int | None]:
@@ -51,18 +63,6 @@ def _key_info(public_key) -> tuple[str, int | None]:
         return "X448", 448
     if isinstance(public_key, dsa.DSAPublicKey):
         return "DSA", public_key.key_size
-    # ``cryptography`` gained ML-DSA key classes after this package's minimum
-    # supported version.  Avoid importing an optional module so older releases
-    # still parse classical certificates, while recognising those concrete
-    # classes when the local backend does support them.
-    pqc_class_names = {
-        "MLDSA44PUBLICKEY": "ML-DSA-44",
-        "MLDSA65PUBLICKEY": "ML-DSA-65",
-        "MLDSA87PUBLICKEY": "ML-DSA-87",
-    }
-    pqc_algorithm = pqc_class_names.get(type(public_key).__name__.upper())
-    if pqc_algorithm:
-        return pqc_algorithm, None
     return type(public_key).__name__, None
 
 
@@ -88,21 +88,69 @@ def assess_certificates(
         alg, bits = _key_info(cert.public_key())
         not_after = cert.not_valid_after_utc
         sig_oid = cert.signature_algorithm_oid
+        sig_oid_dotted = sig_oid.dotted_string
+        sig_alg_name = getattr(sig_oid, "_name", None) or sig_oid_dotted
+
+        composite_info = None
+        composite_assessment = None
+
+        # Check for hybrid/composite signature algorithm OID (draft-ietf-lamps-pq-composite-sigs)
+        composite = parse_composite_oid(sig_oid_dotted)
+        if composite:
+            pqc_alg, trad_alg, hash_alg = composite
+            composite_info = {
+                "type": "hybrid_signature",
+                "draft_version": "draft-ietf-lamps-pq-composite-sigs-07",
+                "pqc_algorithm": pqc_alg,
+                "traditional_algorithm": trad_alg,
+                "hash_algorithm": hash_alg,
+                "signature_oid": sig_oid_dotted,
+            }
+            composite_assessment = assess_composite_key(
+                pqc_alg,
+                trad_alg,
+                expires=not_after,
+                protection_years_after_expiry=protection_years_after_expiry,
+                crqc_year=crqc_year,
+                now=now,
+            )
+        # Check for pure ML-DSA signature algorithm OID (RFC 9881)
+        elif mldsa_alg := is_pure_mldsa_oid(sig_oid_dotted):
+            composite_info = {
+                "type": "pure_mldsa_signature",
+                "algorithm": mldsa_alg,
+                "signature_oid": sig_oid_dotted,
+            }
+        # Unknown OID: attempt ASN.1 parsing for algorithm identifier fallback
+        else:
+            composite_info = {
+                "type": "unknown_algorithm",
+                "signature_oid": sig_oid_dotted,
+                "signature_algorithm_name": sig_alg_name,
+            }
+
+        # Use composite assessment if available, otherwise fall back to public key assessment
+        if composite_assessment:
+            public_key_assessment = composite_assessment
+        else:
+            public_key_assessment = assess_key(
+                alg,
+                bits,
+                expires=not_after,
+                protection_years_after_expiry=protection_years_after_expiry,
+                crqc_year=crqc_year,
+                now=now,
+            )
+
         reports.append(
             CertificateReport(
                 subject=cert.subject.rfc4514_string(),
                 issuer=cert.issuer.rfc4514_string(),
                 serial=format(cert.serial_number, "x"),
                 not_after=not_after.isoformat(),
-                signature_algorithm=getattr(sig_oid, "_name", None) or sig_oid.dotted_string,
-                public_key=assess_key(
-                    alg,
-                    bits,
-                    expires=not_after,
-                    protection_years_after_expiry=protection_years_after_expiry,
-                    crqc_year=crqc_year,
-                    now=now,
-                ),
+                signature_algorithm=sig_alg_name,
+                public_key=public_key_assessment,
+                composite_info=composite_info,
             )
         )
     return reports
