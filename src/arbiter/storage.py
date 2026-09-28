@@ -199,7 +199,8 @@ class SQLiteStorage:
         if row is None:
             return None
         return {
-                "job_id": row["id"], "owner": row["owner"],
+            "job_id": row["id"],
+            "owner": row["owner"],
             "kind": row["kind"],
             "status": row["status"],
             "progress": row["progress"],

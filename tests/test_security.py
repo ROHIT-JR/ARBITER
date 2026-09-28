@@ -37,12 +37,14 @@ def test_rate_limit_has_retry_after(monkeypatch):
 def test_rate_limit_is_atomic_under_concurrency(monkeypatch):
     monkeypatch.setenv("ARBITER_RATE_LIMIT", "1")
     security = Security()
+
     def allowed():
         try:
             security.expensive(_request(host="same"))
             return True
         except HTTPException:
             return False
+
     with ThreadPoolExecutor(max_workers=8) as pool:
         assert list(pool.map(lambda _: allowed(), range(8))).count(True) == 1
 

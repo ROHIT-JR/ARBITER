@@ -73,6 +73,8 @@ class TlsScanRequest(BaseModel):
     timeout: float = Field(5.0, gt=0, le=60)
     protection_years_after_expiry: float = Field(0.0, ge=0, le=100)
     crqc_year: int = Field(2035, ge=2025, le=2100)
+
+
 class JobRequest(BaseModel):
     kind: Literal["session", "compare", "hardware"]
     params: dict = Field(default_factory=dict)
