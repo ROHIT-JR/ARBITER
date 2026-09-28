@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { api, type ComparisonResult } from "../api";
+import { api, type ComparisonResult, type DemoAccuracyCache } from "../api";
 import ConfusionMatrix from "./ConfusionMatrix";
 import ThetaCurve from "./ThetaCurve";
 
@@ -9,7 +9,32 @@ type DetectorChoice = "unified" | "baseline" | "both";
 const SEED = 26141;
 const CURVE_THETAS = [0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 1];
 
-export default function AccuracyPanel() {
+const ATTACKS = ["forgery", "impersonation", "replay", "channel_manipulation"] as const;
+
+function expandDemoCache(cache: DemoAccuracyCache): ComparisonResult[] {
+  return cache.curve.map((point) => {
+    const detector = (name: "unified" | "baseline") => ({
+      ...cache.detectors[name],
+      attacks: Object.fromEntries(
+        ATTACKS.map((attack, index) => [attack, {
+          detection_rate: point[name][index],
+          correct_attribution_rate: point[name][index],
+        }]),
+      ) as ComparisonResult["detectors"]["unified"]["attacks"],
+    });
+    return {
+      ...cache,
+      metadata: { ...cache.metadata, theta: point.theta },
+      detectors: {
+        unified: detector("unified"),
+        baseline: detector("baseline"),
+        baseline_bonferroni: detector("baseline"),
+      },
+    };
+  });
+}
+
+export default function AccuracyPanel({ demoCache }: { demoCache?: DemoAccuracyCache | null }) {
   const [theta, setTheta] = useState(0.3);
   const [sessions, setSessions] = useState(40);
   const [detector, setDetector] = useState<DetectorChoice>("both");
@@ -17,6 +42,14 @@ export default function AccuracyPanel() {
   const [results, setResults] = useState<ComparisonResult[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!demoCache) return;
+    setTheta(demoCache.metadata.theta);
+    setSessions(demoCache.metadata.sessions_per_hypothesis);
+    setQuery({ theta: demoCache.metadata.theta, sessions: demoCache.metadata.sessions_per_hypothesis });
+    setError(null);
+  }, [demoCache]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -33,20 +66,22 @@ export default function AccuracyPanel() {
   }, [query]);
 
   useEffect(() => {
+    if (demoCache) return;
     void load();
-  }, [load]);
+  }, [demoCache, load]);
 
-  const selected = results?.find((result) => result.metadata.theta === query.theta);
+  const displayedResults = demoCache ? expandDemoCache(demoCache) : results;
+  const selected = displayedResults?.find((result) => result.metadata.theta === query.theta);
   const shownDetectors = detector === "both" ? ["unified", "baseline"] as const : [detector] as const;
 
   return (
     <div className="accuracy-panel">
-      <div className="accuracy-intro">
+      <div className="accuracy-intro" id="accuracy-panel">
         <div>
           <h2>Accuracy across sessions</h2>
           <p className="muted">Compare one joint test with four fixed thresholds under the same sessions and false-alarm target.</p>
         </div>
-        <span className="metric-chip">seed {SEED}</span>
+        <span className="metric-chip">{demoCache ? "cached demo data" : `seed ${SEED}`}</span>
       </div>
 
       <form
@@ -73,7 +108,7 @@ export default function AccuracyPanel() {
             <option value="both">both</option>
           </select>
         </label>
-        <button type="submit" disabled={loading}>Run comparison</button>
+        <button type="submit" disabled={loading || Boolean(demoCache)}>{demoCache ? "Cached demo result" : "Run comparison"}</button>
       </form>
 
       {error && (
@@ -83,7 +118,7 @@ export default function AccuracyPanel() {
         </div>
       )}
 
-      {loading && (
+      {loading && !demoCache && (
         <div className="accuracy-loading" role="status" aria-live="polite" aria-busy="true">
           <span className="loading-mark" aria-hidden="true" />
           <div>
@@ -93,7 +128,7 @@ export default function AccuracyPanel() {
         </div>
       )}
 
-      {results && selected && (
+      {displayedResults && selected && (
         <>
           <div className={`matrix-grid ${shownDetectors.length === 1 ? "single" : ""}`}>
             {shownDetectors.map((name) => (
@@ -105,7 +140,7 @@ export default function AccuracyPanel() {
               />
             ))}
           </div>
-          <ThetaCurve results={results} detector={detector} />
+          <ThetaCurve results={displayedResults} detector={detector} />
           <p className="muted small accuracy-footnote">
             Balanced 1,200-round sessions at α = {selected.metadata.alpha}. Impersonation is all-or-nothing, so its line is constant.
           </p>

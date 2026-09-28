@@ -126,6 +126,41 @@ body {
   gap: 8px;
 }
 
+.demo-menu {
+  position: relative;
+}
+
+.demo-menu summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.demo-menu[open] {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: 0;
+  width: min(340px, calc(100vw - 32px));
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}
+
+.demo-actions {
+  display: grid;
+  gap: 6px;
+}
+
+.demo-actions button {
+  text-align: left;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
 .theme-toggle {
   padding: 4px 10px;
   border-color: var(--border);

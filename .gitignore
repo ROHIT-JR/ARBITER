@@ -219,4 +219,4 @@ __marimo__/
 
 # ARBITER runtime state (ledger keys, ledger)
 .arbiter/
-
+.arbiter-demo/

@@ -75,3 +75,5 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run build
+      - name: Assert built dashboard has no external URLs
+        run: node --input-type=module -e 'import { readFileSync } from "node:fs"; const index = readFileSync("dist/index.html", "utf8"); if (/(?:https?:)?\/\//i.test(index)) { throw new Error("dashboard index contains an external URL"); }'

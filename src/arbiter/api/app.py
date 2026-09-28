@@ -10,12 +10,14 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime
+from importlib.resources import files
 from pathlib import Path
 from threading import Lock
 from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from arbiter import __version__
@@ -36,6 +38,32 @@ from arbiter.qds_simulation import (
     simulate_session,
 )
 from arbiter.storage import SQLiteStorage
+
+
+def dashboard_dist() -> Path:
+    """Return the installed dashboard resource directory, with a test override."""
+    configured = os.environ.get("ARBITER_DASHBOARD_DIR")
+    if configured:
+        return Path(configured)
+    return Path(str(files("arbiter").joinpath("dashboard")))
+
+
+class ApiPrefixMiddleware:
+    """Let the static dashboard keep its stable ``/api`` development contract.
+
+    Existing API consumers continue using unprefixed paths; only the dashboard
+    alias is rewritten before FastAPI performs its normal route matching.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope["path"].startswith("/api/"):
+            scope = dict(scope)
+            scope["path"] = scope["path"][4:]
+            scope["raw_path"] = scope["path"].encode()
+        await self.app(scope, receive, send)
 
 
 class SessionRequest(BaseModel):
@@ -140,6 +168,7 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
     app.add_middleware(
         CORSMiddleware, allow_origins=origins, allow_methods=["*"], allow_headers=["*"], allow_credentials=False
     )
+    app.add_middleware(ApiPrefixMiddleware)
 
     @app.get("/health")
     def health():
@@ -151,6 +180,13 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
             "noise_preset": preset,
             "demo_mode": demo_mode,
         }
+
+    @app.get("/demo/scenarios")
+    def demo_scenarios():
+        """Named, seeded local-demo actions plus an instant cached accuracy view."""
+        from arbiter.demo import demo_catalog
+
+        return demo_catalog()
 
     @app.get("/model")
     def model(theta: float = Query(1.0, gt=0, le=1)):
@@ -384,4 +420,7 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
                 raise HTTPException(422, str(exc)) from exc
         return reports
 
+    static_dir = dashboard_dist()
+    if (static_dir / "index.html").is_file():
+        app.mount("/", StaticFiles(directory=static_dir, html=True), name="dashboard")
     return app

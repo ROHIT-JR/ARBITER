@@ -22,14 +22,18 @@ dependencies = [
     "qiskit>=1.3",
     "qiskit-aer>=0.15",
     "dilithium-py>=1.1",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "pydantic>=2",
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
-api = ["fastapi>=0.110", "uvicorn>=0.29", "pydantic>=2"]
+api = []
 sdp = ["cvxpy>=1.4"]
 pki = ["cryptography>=42"]
 notebooks = ["jupyter>=1", "matplotlib>=3.8", "pandas>=2"]
-dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.6", "nbclient>=0.10", "nbformat>=5.10", "ipykernel>=6", "matplotlib>=3.8", "pandas>=2", "arbiter-qds[api,sdp,pki]"]
+dev = ["pytest>=8", "ruff>=0.6", "nbclient>=0.10", "nbformat>=5.10", "ipykernel>=6", "matplotlib>=3.8", "pandas>=2", "arbiter-qds[api,sdp,pki]"]
 
 [project.urls]
 Repository = "https://github.com/ROHIT-JR/ARBITER"
@@ -39,6 +43,9 @@ arbiter = "arbiter.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+arbiter = ["demo_scenarios.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

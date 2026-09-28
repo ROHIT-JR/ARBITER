@@ -2,7 +2,12 @@ import { useEffect, useState } from "react";
 
 import { api, label, type LedgerReport, type LedgerSummary } from "../api";
 
-export default function LedgerPanel({ version, highlight, demoMode }: { version: number; highlight?: number; demoMode: boolean }) {
+export default function LedgerPanel({ version, highlight, demoMode, report: externalReport }: {
+  version: number;
+  highlight?: number;
+  demoMode: boolean;
+  report?: LedgerReport | null;
+}) {
   const [ledger, setLedger] = useState<LedgerSummary | null>(null);
   const [report, setReport] = useState<LedgerReport | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -13,6 +18,10 @@ export default function LedgerPanel({ version, highlight, demoMode }: { version:
     refresh();
     setReport(null);
   }, [version]);
+
+  useEffect(() => {
+    if (externalReport) setReport(externalReport);
+  }, [externalReport]);
 
   const tamper = async (index: number, value: string, recomputeHashes: boolean) => {
     setError(null);

@@ -104,6 +104,25 @@ export interface ComparisonResult {
   detectors: Record<DetectorName, DetectorComparison>;
 }
 
+export interface DemoScenario {
+  id: string;
+  title: string;
+  kind: "session" | "resubmit" | "tamper" | "accuracy" | "hardware";
+  request?: SessionRequest | { field: LedgerTamperField; value: string; recompute_hashes: boolean };
+  source?: string;
+  optional?: boolean;
+  cached_result?: DemoAccuracyCache | null;
+}
+
+export interface DemoAccuracyCache extends ComparisonResult {
+  curve: { theta: number; unified: number[]; baseline: number[] }[];
+}
+
+export interface DemoCatalog {
+  version: number;
+  scenarios: DemoScenario[];
+}
+
 export const UNREACHABLE = "Cannot reach the ARBITER API. Is uvicorn running on port 8000?";
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
@@ -147,6 +166,7 @@ export const api = {
   bounds: (theta: number) => call<BoundRow[]>(`/bounds?theta=${theta}`),
   compare: (theta: number, sessions: number, seed: number) =>
     call<ComparisonResult>(`/compare?theta=${theta}&sessions=${sessions}&seed=${seed}`),
+  demoScenarios: () => call<DemoCatalog>("/demo/scenarios"),
 };
 
 export const label = (h: string) => h.replaceAll("_", " ");
