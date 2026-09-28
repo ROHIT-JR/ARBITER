@@ -64,6 +64,13 @@ class LedgerTamperRequest(BaseModel):
     recompute_hashes: bool = False
 
 
+class TlsScanRequest(BaseModel):
+    targets: list[str] = Field(min_length=1, max_length=32, description="host, host:port, or [ipv6]:port")
+    timeout: float = Field(5.0, gt=0, le=60)
+    protection_years_after_expiry: float = Field(0.0, ge=0, le=100)
+    crqc_year: int = Field(2035, ge=2025, le=2100)
+
+
 def _summarise_entry(e: dict) -> dict:
     p = e["payload"]
     out = {"index": e["index"], "timestamp": e["timestamp"], "hash": e["hash"], "prev_hash": e["prev_hash"]}
@@ -103,6 +110,10 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
             "ARBITER DEMO MODE IS ENABLED: in-memory ledger tampering endpoints are available. "
             "Do not expose this server outside a controlled demo."
         )
+    scan_enabled = os.environ.get("ARBITER_PKI_SCAN") == "1"
+    scan_allowlist = tuple(
+        item.strip() for item in os.environ.get("ARBITER_PKI_SCAN_ALLOW", "").split(",") if item.strip()
+    )
 
     app = FastAPI(
         title="ARBITER",
@@ -273,5 +284,43 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
             protection_years_after_expiry=req.protection_years_after_expiry,
             crqc_year=req.crqc_year,
         ).to_dict()
+
+    @app.post("/pki/scan")
+    def pki_scan(req: TlsScanRequest):
+        """Scan allowlisted public TLS endpoints when explicitly enabled."""
+        if not scan_enabled:
+            raise HTTPException(403, "TLS scanning is disabled; set ARBITER_PKI_SCAN=1 to enable it")
+        if not scan_allowlist:
+            raise HTTPException(403, "TLS scanning requires ARBITER_PKI_SCAN_ALLOW with allowed hostname suffixes")
+        try:
+            from arbiter.pki_risk_scoring.scan import (
+                ScanBlockedError,
+                ScanError,
+                host_is_allowed,
+                parse_target,
+                scan_tls,
+            )
+        except ImportError as exc:  # pragma: no cover
+            raise HTTPException(501, "install arbiter-qds[pki] for TLS certificate scanning") from exc
+        reports = []
+        for target in req.targets:
+            try:
+                host, port = parse_target(target)
+                if not host_is_allowed(host, scan_allowlist):
+                    raise ScanBlockedError(f"target {host!r} is outside the configured allowlist")
+                reports.append(
+                    scan_tls(
+                        host,
+                        port,
+                        timeout=req.timeout,
+                        protection_years_after_expiry=req.protection_years_after_expiry,
+                        crqc_year=req.crqc_year,
+                    ).to_dict()
+                )
+            except ScanBlockedError as exc:
+                raise HTTPException(403, str(exc)) from exc
+            except ScanError as exc:
+                raise HTTPException(422, str(exc)) from exc
+        return reports
 
     return app

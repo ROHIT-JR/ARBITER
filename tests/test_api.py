@@ -117,6 +117,11 @@ def test_pki_assess_returns_chain_report_for_linked_bundle(client):
     assert payload["chains"][0]["weakest_link"]["subject"] == "CN=root"
 
 
+def test_pki_scan_endpoint_is_disabled_by_default(client):
+    response = client.post("/pki/scan", json={"targets": ["example.com"]})
+    assert response.status_code == 403
+
+
 def test_noise_preset_env(tmp_path, monkeypatch):
     monkeypatch.setenv("ARBITER_NOISE_PRESET", "conservative")
     c = TestClient(create_app(tmp_path))

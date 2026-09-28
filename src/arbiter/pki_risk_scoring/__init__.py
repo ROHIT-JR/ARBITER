@@ -7,6 +7,7 @@ from arbiter.pki_risk_scoring.chain import (
     WeakestLink,
     assess_chains,
 )
+from arbiter.pki_risk_scoring.scan import ScanBlockedError, ScanError, TlsScanReport, parse_target, scan_tls
 from arbiter.pki_risk_scoring.scoring import DEFAULT_CRQC_YEAR, RiskAssessment, RiskLevel, assess_key
 
 __all__ = [
@@ -22,4 +23,9 @@ __all__ = [
     "assess_certificates",
     "assess_chains",
     "assess_key",
+    "ScanBlockedError",
+    "ScanError",
+    "TlsScanReport",
+    "parse_target",
+    "scan_tls",
 ]

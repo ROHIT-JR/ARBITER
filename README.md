@@ -125,11 +125,13 @@ print(v.reasons)
 | `GET /ledger`, `/ledger/{i}`, `/ledger/verify` | inspect and verify the audit chain |
 | `GET /noise/presets` | trapped-ion presets and the channel parameters they induce |
 | `POST /pki/assess`, `/pki/assess-key` | quantum-risk score for certificates (PEM) or single keys |
+| `POST /pki/scan` | opt-in, allowlisted scan of public TLS endpoint certificates |
 
-Two environment variables configure the service:
+Service configuration includes:
 
 - `ARBITER_DATA_DIR`: where the ledger keys, ledger and SQLite session store (`arbiter.db`) live. The default is `./.arbiter`.
 - `ARBITER_NOISE_PRESET`: calibrates the legitimate channel from a trapped-ion preset (`state_of_the_art_2025`, `prototype` or `conservative`).
+- `ARBITER_PKI_SCAN=1` plus `ARBITER_PKI_SCAN_ALLOW=example.com,...`: enable the otherwise-disabled TLS scan endpoint for narrow hostname suffixes. It refuses non-public DNS answers; see [PKI scoring](docs/pki-risk-scoring.md).
 
 The API uses SQLite with one connection per storage operation, so session transcripts, verdicts and replay nonces survive a restart. PostgreSQL is deliberately out of scope; a future backend can replace `SQLiteStorage` by providing the same save/load session, verdict and atomic nonce-registration operations without changing the detector or API behavior.
 
