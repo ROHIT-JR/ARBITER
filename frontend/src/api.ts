@@ -64,6 +64,8 @@ export interface LedgerReport {
   problems: string[];
 }
 
+export type LedgerTamperField = "decision" | "attribution" | "timestamp";
+
 export interface BoundRow {
   attack: string;
   helstrom_error_single_round: number;
@@ -131,11 +133,17 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  health: () => call<{ status: string; version: string; ledger_entries: number; ledger_capacity: number }>("/health"),
+  health: () => call<{ status: string; version: string; ledger_entries: number; ledger_capacity: number; demo_mode: boolean }>("/health"),
   runSession: (req: SessionRequest) => call<Verdict>("/sessions", { method: "POST", body: JSON.stringify(req) }),
   resubmit: (id: string) => call<Verdict>(`/sessions/${id}/resubmit?trajectory=true`, { method: "POST" }),
   ledger: (limit = 15) => call<LedgerSummary>(`/ledger?limit=${limit}`),
   verifyLedger: () => call<LedgerReport>("/ledger/verify"),
+  tamperLedger: (index: number, field: LedgerTamperField, value: string, recomputeHashes = false) =>
+    call<LedgerReport>(`/ledger/${index}/tamper`, {
+      method: "POST",
+      body: JSON.stringify({ field, value, recompute_hashes: recomputeHashes }),
+    }),
+  restoreLedger: () => call<LedgerReport>("/ledger/restore", { method: "POST" }),
   bounds: (theta: number) => call<BoundRow[]>(`/bounds?theta=${theta}`),
   compare: (theta: number, sessions: number, seed: number) =>
     call<ComparisonResult>(`/compare?theta=${theta}&sessions=${sessions}&seed=${seed}`),
