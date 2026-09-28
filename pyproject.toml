@@ -33,7 +33,7 @@ api = []
 sdp = ["cvxpy>=1.4"]
 pki = ["cryptography>=42"]
 notebooks = ["jupyter>=1", "matplotlib>=3.8", "pandas>=2"]
-dev = ["pytest>=8", "ruff>=0.6", "nbclient>=0.10", "nbformat>=5.10", "ipykernel>=6", "matplotlib>=3.8", "pandas>=2", "arbiter-qds[api,sdp,pki]"]
+dev = ["pytest>=8", "pytest-cov>=5", "hypothesis>=6", "ruff>=0.6", "nbclient>=0.10", "nbformat>=5.10", "ipykernel>=6", "matplotlib>=3.8", "pandas>=2", "arbiter-qds[api,sdp,pki]"]
 
 [project.urls]
 Repository = "https://github.com/ROHIT-JR/ARBITER"
@@ -50,6 +50,29 @@ arbiter = ["demo_scenarios.json", "dashboard/*.html", "dashboard/assets/*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["slow: statistical or Qiskit-circuit tests that take several seconds"]
+
+[tool.coverage.run]
+source = ["arbiter"]
+# The gate targets deterministic protocol/security code.  Network, process,
+# hardware, and persistence adapters are still exercised by the regular test
+# matrix, but are excluded because their branch coverage depends on external
+# runtimes rather than the property-testable core.
+omit = [
+    "src/arbiter/api/*",
+    "src/arbiter/cli.py",
+    "src/arbiter/demo.py",
+    "src/arbiter/pipeline.py",
+    "src/arbiter/storage.py",
+    "src/arbiter/detection/baseline.py",
+    "src/arbiter/pki_risk_scoring/certificates.py",
+    "src/arbiter/pki_risk_scoring/chain.py",
+    "src/arbiter/pki_risk_scoring/scan.py",
+    "src/arbiter/qds_simulation/circuits.py",
+]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
 
 [tool.ruff]
 line-length = 120

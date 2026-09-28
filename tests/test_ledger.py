@@ -77,6 +77,20 @@ def test_genesis_trust_anchor(ledger, keys):
     assert not verify_entries(other.entries, expected_genesis_hash=ledger.genesis_hash).ok
 
 
+def test_malformed_signature_encoding_returns_failed_report(ledger):
+    """Regression: a corrupt base64 byte must not crash verification."""
+    entries = copy.deepcopy(ledger.entries)
+    entries[1]["signatures"]["mldsa"] = "!"
+    assert not verify_entries(entries).ok
+
+
+def test_genesis_signature_placeholder_is_integrity_checked(ledger):
+    """Regression: unsigned genesis entries cannot carry arbitrary metadata."""
+    entries = copy.deepcopy(ledger.entries)
+    entries[0]["signatures"]["mldsa"] = "unexpected"
+    assert not verify_entries(entries).ok
+
+
 def test_persistence(tmp_path, keys):
     path = tmp_path / "ledger.jsonl"
     led = AuditLedger(keys, path)

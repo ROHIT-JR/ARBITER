@@ -49,6 +49,11 @@ def test_unknown_algorithm():
     assert assess_key("GOST", 256, now=NOW).family == "unknown"
 
 
+def test_non_positive_ecc_key_size_uses_safe_default():
+    """Regression: untrusted scanner metadata must not reach log2 with n <= 0."""
+    assert 0 <= assess_key("ECDSA", -1, now=NOW).score <= 100
+
+
 def _self_signed(key, days: int):
     from cryptography import x509
     from cryptography.hazmat.primitives import hashes

@@ -115,6 +115,17 @@ def curve_bits(curve: str) -> int | None:
     return _CURVE_BITS.get(curve.lower())
 
 
+def _positive_key_bits(value: int | None, default: int) -> int:
+    """Return a usable key size for a public-input risk assessment.
+
+    Scanner metadata is not always trustworthy; non-positive values should
+    not make an assessment endpoint raise while calculating ``log2(n)``.
+    """
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    return default
+
+
 def assess_key(
     algorithm: str,
     key_bits: int | None = None,
@@ -157,16 +168,16 @@ def assess_key(
 
     if alg in ("RSA", "RSA-PSS", "RSAES-OAEP"):
         family = "rsa"
-        n = key_bits or 2048
+        n = _positive_key_bits(key_bits, 2048)
         classical = _rsa_classical_bits(n)
         qubits = 2 * n + 3
     elif alg in ("EC", "ECDSA", "ECDH", "ED25519", "ED448", "X25519", "X448", "EDDSA", "DSA", "DH"):
         family = "ffdlp" if alg in ("DSA", "DH") else "ecc"  # finite-field DLP scales like RSA under Shor
         if alg in ("ED25519", "X25519"):
-            key_bits = key_bits or 255
+            key_bits = _positive_key_bits(key_bits, 255)
         if alg in ("ED448", "X448"):
-            key_bits = key_bits or 448
-        n = key_bits or 256
+            key_bits = _positive_key_bits(key_bits, 448)
+        n = _positive_key_bits(key_bits, 256)
         if family == "ecc":
             classical = n // 2
             qubits = 9 * n + 2 * math.ceil(math.log2(n)) + 10

@@ -1,6 +1,7 @@
 # ARBITER
 
 [![CI](https://github.com/ROHIT-JR/ARBITER/actions/workflows/ci.yml/badge.svg)](https://github.com/ROHIT-JR/ARBITER/actions/workflows/ci.yml)
+[![Core coverage](https://img.shields.io/badge/core%20coverage-%E2%89%A590%25-brightgreen)](https://github.com/ROHIT-JR/ARBITER/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 ![Python 3.10–3.13](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue.svg)
 
@@ -91,6 +92,18 @@ pytest                                   # full suite, ~20 s
 python examples/attack_sweep.py          # the tables above
 uvicorn --factory arbiter.api.app:create_app --port 8000   # API; open http://127.0.0.1:8000/docs
 ```
+
+## Test coverage
+
+CI enforces at least 90% line coverage for the deterministic protocol and
+security core, and publishes HTML/XML coverage artefacts on every run.
+Transport and integration adapters (the ASGI API, CLI/demo preflight, SQLite
+persistence, certificate/network scanners, and Qiskit Aer circuits) plus the
+legacy baseline comparator are exercised by the normal cross-platform suite
+but are outside this deterministic-core coverage gate. Hypothesis uses a fast
+`ci` profile in GitHub Actions (20 examples per property); run
+`HYPOTHESIS_PROFILE=thorough pytest tests/test_properties.py` locally for 100
+examples per property.
 
 **Dashboard** (in a second terminal):
 

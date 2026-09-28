@@ -32,22 +32,27 @@ def trace_norm(m: np.ndarray) -> float:
 
 
 def trace_distance(rho: np.ndarray, sigma: np.ndarray) -> float:
-    return 0.5 * trace_norm(rho - sigma)
+    # Numerical diagonalisation can overshoot the physical upper bound by a
+    # few ulps for nearly pure states.
+    return float(np.clip(0.5 * trace_norm(rho - sigma), 0.0, 1.0))
 
 
 def helstrom_error(rho: np.ndarray, sigma: np.ndarray, prior: float = 0.5) -> float:
     """Minimum error probability discriminating rho (prior p) from sigma."""
-    return 0.5 * (1 - trace_norm(prior * rho - (1 - prior) * sigma))
+    return float(np.clip(0.5 * (1 - trace_norm(prior * rho - (1 - prior) * sigma)), 0.0, 0.5))
 
 
 def fidelity(rho: np.ndarray, sigma: np.ndarray) -> float:
     """Uhlmann fidelity F = (Tr sqrt(sqrt(rho) sigma sqrt(rho)))^2."""
     sr = _mpow(rho, 0.5)
-    return float(np.real(np.trace(_mpow(sr @ sigma @ sr, 0.5))) ** 2)
+    value = float(np.real(np.trace(_mpow(sr @ sigma @ sr, 0.5))) ** 2)
+    return float(np.clip(value, 0.0, 1.0))
 
 
 def quantum_chernoff(rho: np.ndarray, sigma: np.ndarray) -> tuple[float, float]:
     """Return ``(xi, s_opt)``: the quantum Chernoff exponent and its optimiser."""
+    if np.array_equal(rho, sigma):
+        return 0.0, 0.0
 
     def q(s: float) -> float:
         return float(np.real(np.trace(_mpow(rho, s) @ _mpow(sigma, 1 - s))))
@@ -55,7 +60,10 @@ def quantum_chernoff(rho: np.ndarray, sigma: np.ndarray) -> tuple[float, float]:
     res = minimize_scalar(q, bounds=(0.0, 1.0), method="bounded", options={"xatol": 1e-8})
     candidates = [(res.fun, res.x), (q(0.0), 0.0), (q(1.0), 1.0)]
     qmin, s_opt = min(candidates)
-    qmin = max(qmin, 1e-300)
+    # The Chernoff coefficient is in (0, 1] for density matrices.  Clamp
+    # round-off so identical or nearly singular states never acquire a
+    # spurious negative distinguishability exponent.
+    qmin = float(np.clip(qmin, 1e-300, 1.0))
     return float(-np.log(qmin)), float(s_opt)
 
 
@@ -87,7 +95,9 @@ def relative_entropy(rho: np.ndarray, sigma: np.ndarray) -> float:
         if np.any((overlap[i] > 1e-12) & (ws <= 1e-14)):
             return float("inf")
         total += p * np.log(p) - p * cross
-    return float(total)
+    # Klein's inequality makes this non-negative.  Retain the mathematical
+    # invariant in the presence of tiny cancellation errors.
+    return float(max(total, 0.0))
 
 
 def optimal_povm(states: list[np.ndarray], priors: list[float] | None = None):
