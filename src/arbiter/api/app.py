@@ -180,9 +180,9 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
 
     @app.post("/pki/assess")
     def pki_assess(req: CertificateRequest):
-        """Quantum-risk score for each certificate in a PEM bundle."""
+        """Quantum-risk score for certificates, with a chain report for linked bundles."""
         try:
-            from arbiter.pki_risk_scoring import assess_certificates
+            from arbiter.pki_risk_scoring import assess_certificates, assess_chains
         except ImportError as exc:  # pragma: no cover
             raise HTTPException(501, "install arbiter-qds[pki] for certificate parsing") from exc
         try:
@@ -191,8 +191,18 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
                 protection_years_after_expiry=req.protection_years_after_expiry,
                 crqc_year=req.crqc_year,
             )
+            chains = assess_chains(
+                req.pem.encode(),
+                protection_years_after_expiry=req.protection_years_after_expiry,
+                crqc_year=req.crqc_year,
+            )
         except ValueError as exc:
             raise HTTPException(422, f"could not parse certificate: {exc}") from exc
+        # Keep the original list response for a standalone certificate or a
+        # bag of unrelated certificates.  A linked path gains the richer
+        # chain result without breaking existing API users.
+        if any(len(chain.links) > 1 for chain in chains):
+            return {"chains": [chain.to_dict() for chain in chains]}
         return [r.to_dict() for r in reports]
 
     @app.post("/pki/assess-key")

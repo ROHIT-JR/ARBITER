@@ -51,6 +51,18 @@ def _key_info(public_key) -> tuple[str, int | None]:
         return "X448", 448
     if isinstance(public_key, dsa.DSAPublicKey):
         return "DSA", public_key.key_size
+    # ``cryptography`` gained ML-DSA key classes after this package's minimum
+    # supported version.  Avoid importing an optional module so older releases
+    # still parse classical certificates, while recognising those concrete
+    # classes when the local backend does support them.
+    pqc_class_names = {
+        "MLDSA44PUBLICKEY": "ML-DSA-44",
+        "MLDSA65PUBLICKEY": "ML-DSA-65",
+        "MLDSA87PUBLICKEY": "ML-DSA-87",
+    }
+    pqc_algorithm = pqc_class_names.get(type(public_key).__name__.upper())
+    if pqc_algorithm:
+        return pqc_algorithm, None
     return type(public_key).__name__, None
 
 
