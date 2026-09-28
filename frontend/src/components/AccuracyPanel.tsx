@@ -16,8 +16,10 @@ export default function AccuracyPanel() {
   const [query, setQuery] = useState({ theta, sessions });
   const [results, setResults] = useState<ComparisonResult[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
+    setLoading(true);
     setResults(null);
     setError(null);
     const points = [...new Set([...CURVE_THETAS, query.theta])].sort((a, b) => a - b);
@@ -25,6 +27,8 @@ export default function AccuracyPanel() {
       setResults(await Promise.all(points.map((point) => api.compare(point, query.sessions, SEED))));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setLoading(false);
     }
   }, [query]);
 
@@ -49,6 +53,7 @@ export default function AccuracyPanel() {
         className="accuracy-controls"
         onSubmit={(event) => {
           event.preventDefault();
+          setError(null);
           setQuery({ theta, sessions });
         }}
       >
@@ -68,17 +73,17 @@ export default function AccuracyPanel() {
             <option value="both">both</option>
           </select>
         </label>
-        <button type="submit" disabled={!results}>Run comparison</button>
+        <button type="submit" disabled={loading}>Run comparison</button>
       </form>
 
       {error && (
         <div className="accuracy-error" role="alert">
           <p className="error">{error}</p>
-          <button type="button" className="secondary" onClick={() => void load()}>Try again</button>
+          <button type="button" className="secondary" onClick={() => void load()} disabled={loading}>Try again</button>
         </div>
       )}
 
-      {!results && !error && (
+      {loading && (
         <div className="accuracy-loading" role="status" aria-live="polite" aria-busy="true">
           <span className="loading-mark" aria-hidden="true" />
           <div>
