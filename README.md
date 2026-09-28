@@ -50,6 +50,37 @@ From `python examples/attack_sweep.py --sessions 200`: 1200 rounds per session, 
 
 Efficiencies below 1 come from the fixed CHSH settings. That gap is the most concrete open item for the next version.
 
+## vs. fixed thresholds
+
+`BaselineDetector` implements four independent rules in fixed priority order: signature mismatch, freshness mismatch,
+CHSH S, then the joint signature-and-freshness rule. Its thresholds are calibrated under legitimate traffic so the
+*overall* false-alarm rate, not each rule's rate, is α. A conventional Bonferroni variant uses α/4 per rule.
+
+The table below was generated with
+`python examples/compare_baseline.py --sessions 1000 --seed 26141` (1200 balanced rounds/session, α = 0.01).
+Each cell is **detection rate / correct-attribution rate**. The observed false-alarm rates were 0.007 for the unified
+detector, 0.009 for the equally calibrated baseline, and 0.007 for the Bonferroni baseline.
+
+| θ | attack | unified GLRT | fixed thresholds | Bonferroni |
+|---:|---|---:|---:|---:|
+| 1.0 | forgery | 1.000 / 1.000 | 1.000 / 1.000 | 1.000 / 1.000 |
+| 1.0 | impersonation | 1.000 / 1.000 | 1.000 / 0.000 | 1.000 / 0.000 |
+| 1.0 | replay | 1.000 / 1.000 | 1.000 / 0.000 | 1.000 / 0.000 |
+| 1.0 | channel manipulation | 1.000 / 1.000 | 1.000 / 0.000 | 1.000 / 0.000 |
+| 0.3 | forgery | 1.000 / 1.000 | 1.000 / 1.000 | 1.000 / 1.000 |
+| 0.3 | impersonation¹ | 1.000 / 1.000 | 1.000 / 0.000 | 1.000 / 0.000 |
+| 0.3 | replay | 1.000 / 0.999 | 1.000 / 0.637 | 1.000 / 0.637 |
+| 0.3 | channel manipulation | 1.000 / 1.000 | 1.000 / 0.000 | 1.000 / 0.000 |
+| 0.1 | forgery | 0.986 / 0.923 | 0.978 / **0.976** | 0.977 / **0.976** |
+| 0.1 | impersonation¹ | 1.000 / 1.000 | 1.000 / 0.000 | 1.000 / 0.000 |
+| 0.1 | replay | 0.868 / 0.805 | 0.814 / 0.730 | 0.808 / 0.730 |
+| 0.1 | channel manipulation | 0.959 / 0.806 | 0.950 / 0.011 | 0.923 / 0.011 |
+
+¹ Impersonation is all-or-nothing in the threat model, so it remains at θ = 1. The fixed baseline ties the unified
+detector on full-strength *detection*, and at θ = 0.1 it attributes forgery more often (0.976 vs 0.923). The unified
+test nevertheless has the higher forgery detection rate there and is substantially better at distinguishing replay,
+channel manipulation, and impersonation instead of merely raising an alarm.
+
 ## Quickstart
 
 ```bash
@@ -89,6 +120,7 @@ print(v.reasons)
 | `POST /sessions/{id}/resubmit` | replay a transcript verbatim, which the nonce registry catches |
 | `GET /model` | each hypothesis's per-cell outcome probabilities |
 | `GET /bounds` | Helstrom / quantum-Chernoff limits against the achieved exponents |
+| `GET /compare?theta=&sessions=&seed=` | unified-vs-fixed confusion matrices, false alarms, detection and attribution rates |
 | `GET /ledger`, `/ledger/{i}`, `/ledger/verify` | inspect and verify the audit chain |
 | `GET /noise/presets` | trapped-ion presets and the channel parameters they induce |
 | `POST /pki/assess`, `/pki/assess-key` | quantum-risk score for certificates (PEM) or single keys |
@@ -104,7 +136,7 @@ Two environment variables configure the service:
 src/arbiter/
   quantum/            states, channels, trace distance, Helstrom, quantum Chernoff, min-error POVM SDP
   qds_simulation/     physical model, Qiskit circuits, session simulator
-  detection/          unified GLRT, sequential e-process, CHSH, freshness, bounds
+  detection/          unified GLRT, fixed-threshold baseline, sequential e-process, CHSH, freshness, bounds
   audit_ledger/       hash chain + ML-DSA-65 + Merkle-Lamport
   noise/              trapped-ion error budget → channel parameters
   pki_risk_scoring/   X.509 parsing, Shor resource estimates, Mosca's inequality
@@ -113,7 +145,7 @@ src/arbiter/
   qrng.py             Hadamard-measurement QRNG (simulated)
 frontend/             React + TypeScript dashboard (Vite)
 notebooks/            executed walkthrough + the script that builds it
-examples/             attack sweep
+examples/             attack sweep and reproducible baseline comparison
 docs/                 threat model, math derivations, architecture, noise model, PKI scoring
 tests/                per-attack fixtures, circuit/model agreement, false-alarm control,
                       ledger tampering, noise identities, PKI, API
