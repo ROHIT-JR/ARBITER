@@ -8,7 +8,6 @@ keys and the JSON-lines ledger itself.
 from __future__ import annotations
 
 import os
-from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -31,6 +30,7 @@ from arbiter.qds_simulation import (
     expected_chsh,
     simulate_session,
 )
+from arbiter.storage import SQLiteStorage
 
 
 class SessionRequest(BaseModel):
@@ -88,8 +88,8 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
         keys = LedgerKeys.generate()
         keys.save(key_path)
     ledger = AuditLedger(keys, data_dir / "ledger.jsonl")
-    arbiter = Arbiter(params, ledger=ledger)
-    transcripts: OrderedDict[str, Transcript] = OrderedDict()
+    storage = SQLiteStorage(data_dir / "arbiter.db")
+    arbiter = Arbiter(params, ledger=ledger, nonces=storage.nonce_registry())
 
     app = FastAPI(
         title="ARBITER",
@@ -140,24 +140,35 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
     def run_session(req: SessionRequest):
         config = SessionConfig(n_rounds=req.n_rounds, params=arbiter.params)
         t = simulate_session(req.hypothesis, req.theta, config, req.message, seed=req.seed, backend=req.backend)
-        transcripts[t.session_id] = t
-        while len(transcripts) > 256:
-            transcripts.popitem(last=False)
+        storage.save_session(t, seed=req.seed)
         return _verify(t, req.trajectory)
 
     def _verify(t: Transcript, trajectory: bool = False) -> dict:
         try:
-            return arbiter.verify(t).to_dict(trajectory=trajectory)
+            result = arbiter.verify(t).to_dict(trajectory=trajectory)
+            storage.save_verdict(t.session_id, result)
+            return result
         except ValueError as exc:  # hash-based one-time keys exhausted
             raise HTTPException(409, f"audit ledger cannot sign: {exc}; rotate keys") from exc
 
     @app.post("/sessions/{session_id}/resubmit")
     def resubmit(session_id: str, trajectory: bool = Query(False)):
         """Replay a previously verified transcript verbatim (classical replay demo)."""
-        t = transcripts.get(session_id)
+        t = storage.load_session(session_id)
         if t is None:
-            raise HTTPException(404, "unknown or expired session id")
+            raise HTTPException(404, "unknown session id")
         return _verify(t, trajectory)
+
+    @app.get("/sessions")
+    def sessions(limit: int = Query(50, ge=1, le=1000)):
+        return {"sessions": storage.list_sessions(limit)}
+
+    @app.get("/sessions/{session_id}")
+    def session(session_id: str):
+        details = storage.session_details(session_id)
+        if details is None:
+            raise HTTPException(404, "unknown session id")
+        return details
 
     @app.get("/ledger")
     def ledger_entries(limit: int = Query(50, ge=1, le=1000)):

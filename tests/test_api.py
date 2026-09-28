@@ -56,6 +56,29 @@ def test_verbatim_resubmission_is_flagged_as_replay(client):
     assert not again["layers"]["nonce_fresh"]
 
 
+def test_sessions_persist_across_app_restarts(tmp_path):
+    data_dir = tmp_path / "persistent"
+    first_app = TestClient(create_app(data_dir))
+    first = first_app.post("/sessions", json={"seed": 31}).json()
+    session_id = first["session"]["id"]
+
+    restarted = TestClient(create_app(data_dir))
+    listed = restarted.get("/sessions").json()["sessions"]
+    assert listed[0]["id"] == session_id
+    details = restarted.get(f"/sessions/{session_id}")
+    assert details.status_code == 200
+    assert details.json()["transcript_digest"] == first["session"]["transcript_digest"]
+
+    replay = restarted.post(f"/sessions/{session_id}/resubmit").json()
+    assert replay["decision"] == "REJECT"
+    assert replay["attribution"] == "replay"
+    assert not replay["layers"]["nonce_fresh"]
+
+
+def test_unknown_session_is_not_found(client):
+    assert client.get("/sessions/not-a-session").status_code == 404
+
+
 @pytest.mark.slow
 def test_qiskit_backend_through_api(client):
     r = client.post("/sessions", json={"hypothesis": "channel_manipulation", "backend": "qiskit", "seed": 4}).json()
