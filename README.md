@@ -118,6 +118,7 @@ print(v.reasons)
 |---|---|
 | `POST /sessions` | simulate a session `{hypothesis, theta, n_rounds, backend, seed, trajectory}` and return the full layered verdict. The verdict is written to the ledger |
 | `POST /sessions/{id}/resubmit` | replay a transcript verbatim, which the nonce registry catches |
+| `GET /sessions?limit=` and `GET /sessions/{id}` | list persisted sessions or retrieve one stored session and its latest verdict |
 | `GET /model` | each hypothesis's per-cell outcome probabilities |
 | `GET /bounds` | Helstrom / quantum-Chernoff limits against the achieved exponents |
 | `GET /compare?theta=&sessions=&seed=` | unified-vs-fixed confusion matrices, false alarms, detection and attribution rates |
@@ -127,8 +128,10 @@ print(v.reasons)
 
 Two environment variables configure the service:
 
-- `ARBITER_DATA_DIR`: where the ledger keys and the ledger live. The default is `./.arbiter`.
+- `ARBITER_DATA_DIR`: where the ledger keys, ledger and SQLite session store (`arbiter.db`) live. The default is `./.arbiter`.
 - `ARBITER_NOISE_PRESET`: calibrates the legitimate channel from a trapped-ion preset (`state_of_the_art_2025`, `prototype` or `conservative`).
+
+The API uses SQLite with one connection per storage operation, so session transcripts, verdicts and replay nonces survive a restart. PostgreSQL is deliberately out of scope; a future backend can replace `SQLiteStorage` by providing the same save/load session, verdict and atomic nonce-registration operations without changing the detector or API behavior.
 
 ## Repository layout
 

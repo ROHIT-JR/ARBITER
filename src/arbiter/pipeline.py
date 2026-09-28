@@ -79,13 +79,14 @@ class Arbiter:
         alpha: float = 0.01,
         ledger: AuditLedger | None = None,
         chsh_threshold: float = 2.0,
+        nonces: NonceRegistry | None = None,
     ):
         self.params = params or ChannelParams()
         self.alpha = alpha
         self.chsh_threshold = chsh_threshold
         self.unified = UnifiedDetector(self.params, alpha)
         self.sequential = SequentialDetector(self.params, alpha)
-        self.nonces = NonceRegistry()
+        self.nonces = nonces or NonceRegistry()
         self.ledger = ledger
 
     def verify(self, transcript: Transcript) -> ArbiterVerdict:
