@@ -63,6 +63,12 @@ def test_distinguishability_measures_on_known_cases():
     assert relative_entropy(zero, one) == float("inf")
 
 
+def test_chernoff_exponent_is_exactly_zero_for_identical_nearly_pure_state():
+    """Regression: eigensolver round-off must not yield a negative exponent."""
+    rho = np.diag([1 - 1e-12, 1e-12]).astype(complex)
+    assert quantum_chernoff(rho, rho)[0] == 0
+
+
 def test_commuting_states_quantum_chernoff_equals_classical():
     p, q = np.array([0.9, 0.1]), np.array([0.4, 0.6])
     xi_q, _ = quantum_chernoff(np.diag(p).astype(complex), np.diag(q).astype(complex))

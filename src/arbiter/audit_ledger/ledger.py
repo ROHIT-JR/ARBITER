@@ -170,6 +170,24 @@ class AuditLedger:
 
 
 def verify_entries(entries: list[dict], expected_genesis_hash: str | None = None) -> VerificationReport:
+    """Verify untrusted serialised ledger entries without leaking parse errors.
+
+    A verifier must turn malformed encodings (including a one-byte edit to a
+    base64 signature or a Merkle proof) into a failed report, rather than an
+    exception that could interrupt an audit workflow.
+    """
+    try:
+        return _verify_entries(entries, expected_genesis_hash)
+    except Exception as exc:  # Boundary for untrusted on-disk/network ledger data.
+        return VerificationReport(
+            ok=False,
+            entries=len(entries),
+            first_bad_index=0,
+            problems=[f"malformed ledger entry: {type(exc).__name__}"],
+        )
+
+
+def _verify_entries(entries: list[dict], expected_genesis_hash: str | None = None) -> VerificationReport:
     """Verify a ledger using only its own genesis keys (plus, optionally, a
     genesis hash obtained out-of-band)."""
     report = VerificationReport(ok=True, entries=len(entries))
@@ -185,6 +203,8 @@ def verify_entries(entries: list[dict], expected_genesis_hash: str | None = None
     genesis = entries[0]
     if genesis.get("payload", {}).get("type") != "genesis" or genesis.get("prev_hash") != GENESIS_PREV:
         return fail(0, "missing genesis")
+    if genesis.get("signatures") != {"mldsa": "", "hbs": None}:
+        return fail(0, "genesis must not contain signatures")
     header0 = {k: genesis[k] for k in ("index", "timestamp", "prev_hash", "payload")}
     if _entry_hash(GENESIS_PREV, canonical(header0), "", None) != genesis["hash"]:
         return fail(0, "genesis hash mismatch")
