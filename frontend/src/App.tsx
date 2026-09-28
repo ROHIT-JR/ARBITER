@@ -16,10 +16,20 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [online, setOnline] = useState<boolean | null>(null);
+  const [demoMode, setDemoMode] = useState(false);
   const [ledgerVersion, setLedgerVersion] = useState(0);
 
   const checkHealth = useCallback(() => {
-    api.health().then(() => setOnline(true), () => setOnline(false));
+    api.health().then(
+      (health) => {
+        setOnline(true);
+        setDemoMode(health.demo_mode);
+      },
+      () => {
+        setOnline(false);
+        setDemoMode(false);
+      },
+    );
   }, []);
 
   useEffect(() => {
@@ -99,7 +109,7 @@ export default function App() {
 
         <section className="card span-2">
           <h2>Audit ledger</h2>
-          <LedgerPanel version={ledgerVersion} highlight={verdict?.ledger?.index} />
+          <LedgerPanel version={ledgerVersion} highlight={verdict?.ledger?.index} demoMode={demoMode} />
         </section>
 
         <section className="card">

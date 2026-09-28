@@ -124,3 +124,41 @@ def test_noise_preset_env(tmp_path, monkeypatch):
     monkeypatch.setenv("ARBITER_NOISE_PRESET", "nope")
     with pytest.raises(ValueError):
         create_app(tmp_path / "x")
+
+
+def test_demo_ledger_tampering_is_disabled_by_default(client):
+    assert client.get("/health").json()["demo_mode"] is False
+    assert client.post("/ledger/0/tamper", json={"field": "timestamp", "value": "altered"}).status_code == 403
+    assert client.post("/ledger/restore").status_code == 403
+
+
+def test_demo_tamper_behaviors_are_memory_only_and_signature_checked(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARBITER_DEMO_MODE", "1")
+    c = TestClient(create_app(tmp_path))
+    verdict = c.post("/sessions", json={"seed": 21}).json()
+    index = verdict["ledger"]["index"]
+    ledger_path = tmp_path / "ledger.jsonl"
+    persisted = ledger_path.read_text()
+
+    changed = c.post(f"/ledger/{index}/tamper", json={"field": "decision", "value": "REJECT"})
+    assert changed.status_code == 200
+    assert changed.json()["ok"] is False
+    assert changed.json()["first_bad_index"] == index
+    assert "content altered" in changed.json()["problems"][0]
+    assert ledger_path.read_text() == persisted
+
+    restored = c.post("/ledger/restore")
+    assert restored.status_code == 200 and restored.json()["ok"] is True
+    assert c.get("/ledger/verify").json()["ok"] is True
+    assert ledger_path.read_text() == persisted
+
+    verdict = c.post("/sessions", json={"seed": 22}).json()
+    index = verdict["ledger"]["index"]
+    changed = c.post(
+        f"/ledger/{index}/tamper",
+        json={"field": "attribution", "value": "replay", "recompute_hashes": True},
+    )
+    assert changed.status_code == 200
+    assert changed.json()["ok"] is False
+    assert changed.json()["first_bad_index"] == index
+    assert "ML-DSA-65 signature invalid" in changed.json()["problems"][0]

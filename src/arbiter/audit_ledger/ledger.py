@@ -111,6 +111,37 @@ class AuditLedger:
     def append(self, payload: dict) -> dict:
         return self._append_raw(payload, sign=True)
 
+    def restore(self) -> None:
+        """Discard in-memory changes and reload the persisted ledger.
+
+        The demo tamper endpoint deliberately edits ``entries`` without writing
+        the JSON-lines file.  Restoring must therefore be a read-only reload,
+        never a repair or a rewrite of the audit trail.
+        """
+        if self.path is None:
+            raise ValueError("cannot restore a ledger without a persisted path")
+        if not self.path.exists():
+            raise ValueError(f"persisted ledger does not exist: {self.path}")
+        self.entries = [json.loads(line) for line in self.path.read_text().splitlines() if line.strip()]
+
+    def recompute_hashes_from(self, index: int) -> None:
+        """Recompute the hash chain from ``index`` without replacing signatures.
+
+        This is solely a demo aid.  It models an attacker who can rewrite all
+        downstream hashes but cannot forge either signing key, so verification
+        should fail on a signature rather than on the chain link.
+        """
+        if not 1 <= index < len(self.entries):
+            raise ValueError("index must identify a signed ledger entry")
+        for current in range(index, len(self.entries)):
+            entry = self.entries[current]
+            entry["prev_hash"] = self.entries[current - 1]["hash"]
+            header = {key: entry[key] for key in ("index", "timestamp", "prev_hash", "payload")}
+            signatures = entry["signatures"]
+            entry["hash"] = _entry_hash(
+                entry["prev_hash"], canonical(header), signatures["mldsa"], signatures["hbs"]
+            )
+
     def _append_raw(self, payload: dict, sign: bool) -> dict:
         index = len(self.entries)
         prev = self.entries[-1]["hash"] if self.entries else GENESIS_PREV

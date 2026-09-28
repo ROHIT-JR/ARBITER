@@ -7,6 +7,7 @@ keys and the JSON-lines ledger itself.
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -57,6 +58,12 @@ class KeyRequest(BaseModel):
     crqc_year: int = Field(2035, ge=2025, le=2100)
 
 
+class LedgerTamperRequest(BaseModel):
+    field: Literal["decision", "attribution", "timestamp"]
+    value: str = Field(min_length=1, max_length=500)
+    recompute_hashes: bool = False
+
+
 def _summarise_entry(e: dict) -> dict:
     p = e["payload"]
     out = {"index": e["index"], "timestamp": e["timestamp"], "hash": e["hash"], "prev_hash": e["prev_hash"]}
@@ -90,6 +97,12 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
     ledger = AuditLedger(keys, data_dir / "ledger.jsonl")
     storage = SQLiteStorage(data_dir / "arbiter.db")
     arbiter = Arbiter(params, ledger=ledger, nonces=storage.nonce_registry())
+    demo_mode = os.environ.get("ARBITER_DEMO_MODE") == "1"
+    if demo_mode:
+        logging.getLogger(__name__).warning(
+            "ARBITER DEMO MODE IS ENABLED: in-memory ledger tampering endpoints are available. "
+            "Do not expose this server outside a controlled demo."
+        )
 
     app = FastAPI(
         title="ARBITER",
@@ -105,6 +118,7 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
             "ledger_entries": len(ledger.entries),
             "ledger_capacity": keys.hbs.capacity,
             "noise_preset": preset,
+            "demo_mode": demo_mode,
         }
 
     @app.get("/model")
@@ -183,6 +197,38 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
         if not 0 <= index < len(ledger.entries):
             raise HTTPException(404, "no such entry")
         return ledger.entries[index]
+
+    def _require_demo_mode() -> None:
+        if not demo_mode:
+            raise HTTPException(403, "ledger tampering is available only when ARBITER_DEMO_MODE=1")
+
+    @app.post("/ledger/{index}/tamper")
+    def ledger_tamper(index: int, req: LedgerTamperRequest):
+        """Alter an in-memory entry for the controlled, visual tamper demo."""
+        _require_demo_mode()
+        if not 1 <= index < len(ledger.entries):
+            raise HTTPException(422, "choose a signed ledger entry; the genesis entry cannot be tampered")
+        entry = ledger.entries[index]
+        if req.field == "timestamp":
+            entry["timestamp"] = req.value
+        else:
+            payload = entry.get("payload", {})
+            if payload.get("type") != "verdict":
+                raise HTTPException(422, "only verdict entries have decision and attribution fields")
+            payload[req.field] = req.value
+        if req.recompute_hashes:
+            ledger.recompute_hashes_from(index)
+        return ledger.verify().to_dict()
+
+    @app.post("/ledger/restore")
+    def ledger_restore():
+        """Restore the in-memory demo ledger from its untouched persisted file."""
+        _require_demo_mode()
+        try:
+            ledger.restore()
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return ledger.verify().to_dict()
 
     @app.get("/noise/presets")
     def noise_presets():
