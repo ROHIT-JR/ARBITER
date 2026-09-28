@@ -59,7 +59,27 @@ def test_unified_threshold_is_positive_and_stable(unified):
     n, _ = simulate_session(seed=1).counts()
     taus = [unified.threshold(n) for _ in range(3)]
     assert all(t > 0 for t in taus)
-    assert np.ptp(taus) < 1.5
+    assert np.ptp(taus) == 0
+
+
+def test_unified_threshold_calibration_is_cached(monkeypatch):
+    detector = UnifiedDetector(PARAMS, alpha=0.01, n_calibration=100, seed=7)
+    transcript = simulate_session(seed=1)
+    draws = 0
+    original = detector._draw_null_counts
+
+    def counted_draws(n, rng):
+        nonlocal draws
+        draws += 1
+        return original(n, rng)
+
+    monkeypatch.setattr(detector, "_draw_null_counts", counted_draws)
+    first = detector.evaluate(transcript)
+    second = detector.evaluate(transcript)
+
+    assert draws == 1
+    assert first.threshold == second.threshold
+    assert detector._threshold_cached.cache_info().hits == 1
 
 
 def test_theta_estimate_tracks_true_strength(unified):
