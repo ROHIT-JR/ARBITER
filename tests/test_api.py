@@ -75,6 +75,21 @@ def test_sessions_persist_across_app_restarts(tmp_path):
     assert not replay["layers"]["nonce_fresh"]
 
 
+def test_qds_sessions_save_load_and_resubmit_with_their_protocol(client):
+    first = client.post("/sessions", json={"protocol": "qds", "n_rounds": 100, "seed": 32}).json()
+    session_id = first["session"]["id"]
+    assert first["session"]["protocol"] == "qds"
+
+    listed = client.get("/sessions").json()["sessions"]
+    assert listed[0]["id"] == session_id and listed[0]["protocol"] == "qds"
+    assert client.get(f"/sessions/{session_id}").json()["protocol"] == "qds"
+
+    replay = client.post(f"/sessions/{session_id}/resubmit").json()
+    assert replay["decision"] == "REJECT"
+    assert replay["attribution"] == "replay"
+    assert replay["session"]["protocol"] == "qds"
+
+
 def test_unknown_session_is_not_found(client):
     assert client.get("/sessions/not-a-session").status_code == 404
 

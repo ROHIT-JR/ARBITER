@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 from qiskit_aer import AerSimulator
 
+from arbiter.pipeline import Arbiter
 from arbiter.qds_simulation import (
     ATTACKS,
     ChannelParams,
@@ -9,8 +10,10 @@ from arbiter.qds_simulation import (
     RoundType,
     SessionConfig,
     cell_probabilities,
+    distribute_qds_keys,
     expected_chsh,
     protocol,
+    qds_forgery_mismatch_rate,
     simulate_session,
 )
 from arbiter.qds_simulation.model import mismatch_probability, received_state
@@ -65,6 +68,70 @@ def test_label_prf_is_deterministic_and_uniform():
     assert not np.array_equal(a[:100], derive_labels(b"k", b"other", 100))
     freq = np.bincount(a, minlength=6) / len(a)
     assert np.allclose(freq, 1 / 6, atol=0.01)
+
+
+def test_qds_distribution_has_zero_noiseless_mismatches_and_analytic_noise_rate():
+    noiseless = distribute_qds_keys(length=2000, params=ChannelParams(visibility=1.0), seed=4)
+    assert all(noiseless.mismatch_count(0, bit) == 0 for bit in (0, 1))
+
+    params = ChannelParams(visibility=0.92)
+    distributed = distribute_qds_keys(length=30_000, params=params, seed=8)
+    observed = sum(distributed.mismatch_count(0, bit) for bit in (0, 1)) / (2 * distributed.length)
+    expected = cell_probabilities(Hypothesis.LEGITIMATE, 0, params, protocol="qds")[0]
+    z = (observed - expected) / np.sqrt(expected * (1 - expected) / (2 * distributed.length))
+    assert expected == pytest.approx((1 - params.visibility) / 4)
+    assert abs(z) < 4.5
+
+
+def test_qds_keyless_forgery_has_one_quarter_mismatch_rate():
+    distributed = distribute_qds_keys(length=40_000, params=ChannelParams(visibility=1.0), seed=9)
+    forged_reveal = np.zeros(distributed.length, dtype=np.int8)
+    observed = distributed.mismatch_rate(0, 0, forged_reveal)
+    expected = qds_forgery_mismatch_rate()
+    z = (observed - expected) / np.sqrt(expected * (1 - expected) / distributed.length)
+    assert abs(z) < 4.5
+    assert cell_probabilities(Hypothesis.FORGERY, 1, PARAMS, protocol="qds")[0] == pytest.approx(expected)
+
+
+def test_qds_distribution_attack_matches_its_born_rule_signature_rate():
+    params = ChannelParams(visibility=0.92)
+    distributed = distribute_qds_keys(
+        length=30_000,
+        params=params,
+        seed=10,
+        distribution_attack=Hypothesis.CHANNEL_MANIPULATION,
+    )
+    observed = sum(distributed.mismatch_count(0, bit) for bit in (0, 1)) / (2 * distributed.length)
+    expected = cell_probabilities(Hypothesis.CHANNEL_MANIPULATION, 1, params, protocol="qds")[0]
+    z = (observed - expected) / np.sqrt(expected * (1 - expected) / (2 * distributed.length))
+    assert abs(z) < 4.5
+
+
+@pytest.mark.slow
+def test_qds_use_aer_matches_density_matrix_model():
+    params = ChannelParams(visibility=0.92)
+    distributed = distribute_qds_keys(length=12_000, params=params, seed=12, backend="qiskit")
+    observed = sum(distributed.mismatch_count(0, bit) for bit in (0, 1)) / (2 * distributed.length)
+    expected = cell_probabilities(Hypothesis.LEGITIMATE, 0, params, protocol="qds")[0]
+    z = (observed - expected) / np.sqrt(expected * (1 - expected) / (2 * distributed.length))
+    assert abs(z) < 4.5
+
+
+def test_explicit_prf_protocol_reproduces_the_default_session():
+    default = simulate_session(Hypothesis.FORGERY, 0.5, seed=17)
+    explicit = simulate_session(Hypothesis.FORGERY, 0.5, SessionConfig(protocol="prf"), seed=17)
+    assert default.protocol == explicit.protocol == "prf"
+    assert default.nonce == explicit.nonce
+    assert np.array_equal(default.cells, explicit.cells)
+    assert np.array_equal(default.outcomes, explicit.outcomes)
+
+
+def test_qds_transcript_is_evaluated_with_the_matching_pipeline_model():
+    transcript = simulate_session(config=SessionConfig(n_rounds=100, protocol="qds"), seed=18)
+    verdict = Arbiter(protocol="qds").verify(transcript)
+    assert verdict.transcript.protocol == "qds"
+    with pytest.raises(ValueError, match="does not match"):
+        Arbiter(protocol="prf").verify(transcript)
 
 
 def test_session_is_reproducible_and_counts_add_up():

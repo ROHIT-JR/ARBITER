@@ -25,7 +25,7 @@ from arbiter.detection import (
     freshness_test,
 )
 from arbiter.detection.freshness import FreshnessResult
-from arbiter.qds_simulation.model import ChannelParams, Hypothesis
+from arbiter.qds_simulation.model import ChannelParams, Hypothesis, _normalise_protocol
 from arbiter.qds_simulation.protocol import Transcript
 
 
@@ -51,6 +51,7 @@ class ArbiterVerdict:
                 "message": t.message,
                 "nonce": t.nonce,
                 "backend": t.backend,
+                "protocol": t.protocol,
                 "rounds": int(len(t.cells)),
                 "rounds_per_cell": n.tolist(),
                 "transcript_digest": t.digest(),
@@ -80,16 +81,23 @@ class Arbiter:
         ledger: AuditLedger | None = None,
         chsh_threshold: float = 2.0,
         nonces: NonceRegistry | None = None,
+        *,
+        protocol: str = "prf",
     ):
         self.params = params or ChannelParams()
         self.alpha = alpha
         self.chsh_threshold = chsh_threshold
-        self.unified = UnifiedDetector(self.params, alpha)
-        self.sequential = SequentialDetector(self.params, alpha)
+        self.protocol = _normalise_protocol(protocol)
+        self.unified = UnifiedDetector(self.params, alpha, protocol=self.protocol)
+        self.sequential = SequentialDetector(self.params, alpha, protocol=self.protocol)
         self.nonces = nonces or NonceRegistry()
         self.ledger = ledger
 
     def verify(self, transcript: Transcript) -> ArbiterVerdict:
+        if transcript.protocol != self.protocol:
+            raise ValueError(
+                f"transcript protocol {transcript.protocol!r} does not match ARBITER protocol {self.protocol!r}"
+            )
         nonce_fresh = self.nonces.check_and_register(transcript.nonce)
         chsh = chsh_precheck(transcript, self.chsh_threshold)
         fresh = freshness_test(transcript, self.params, self.alpha)

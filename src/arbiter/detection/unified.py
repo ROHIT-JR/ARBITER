@@ -41,7 +41,7 @@ from arbiter.qds_simulation.protocol import Transcript
 DEFAULT_THETA_GRID = np.linspace(0.05, 1.0, 20)
 
 
-def build_alternatives(params: ChannelParams, theta_grid: np.ndarray):
+def build_alternatives(params: ChannelParams, theta_grid: np.ndarray, protocol: str = "prf"):
     """Enumerate the composite alternative as (hypothesis, theta) components.
 
     Returns ``(components, probs, groups)``: probs[j] is the per-cell
@@ -49,7 +49,7 @@ def build_alternatives(params: ChannelParams, theta_grid: np.ndarray):
     belonging to attack h. All-or-nothing attacks get the single theta = 1.
     """
     components = [(h, float(t)) for h in ATTACKS for t in ((1.0,) if h in ALL_OR_NOTHING else theta_grid)]
-    probs = np.array([cell_probabilities(h, t, params) for h, t in components])
+    probs = np.array([cell_probabilities(h, t, params, protocol) for h, t in components])
     groups = {h: np.array([j for j, (g, _) in enumerate(components) if g is h]) for h in ATTACKS}
     return components, probs, groups
 
@@ -86,18 +86,20 @@ class UnifiedDetector:
         theta_grid: np.ndarray = DEFAULT_THETA_GRID,
         n_calibration: int = 4000,
         seed: int | None = 0,
+        protocol: str = "prf",
     ):
         self.params = params or ChannelParams()
         self.alpha = alpha
         self.theta_grid = np.asarray(theta_grid, float)
         self.n_calibration = n_calibration
+        self.protocol = protocol
         # Keep calibration reproducible without sharing mutable RNG state
         # between cache entries. ``None`` still chooses fresh entropy for each
         # detector instance, but an entry is fixed for the life of that
         # instance once its count-vector key has been selected.
         self._calibration_seed = tuple(int(x) for x in np.random.SeedSequence(seed).generate_state(4, dtype=np.uint32))
-        self.p0 = cell_probabilities(Hypothesis.LEGITIMATE, 0.0, self.params)
-        self.components, self.alt, self.groups = build_alternatives(self.params, self.theta_grid)
+        self.p0 = cell_probabilities(Hypothesis.LEGITIMATE, 0.0, self.params, protocol)
+        self.components, self.alt, self.groups = build_alternatives(self.params, self.theta_grid, protocol)
         self._logp0 = np.log(np.clip(np.stack([1 - self.p0, self.p0]), 1e-300, None))
         self._logalt = np.log(np.clip(np.stack([1 - self.alt, self.alt]), 1e-300, None))
         self._threshold_cached = lru_cache(maxsize=1024)(self._calibrate_threshold)

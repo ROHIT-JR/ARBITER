@@ -32,6 +32,22 @@ class TeleportSpec:
 
 
 @dataclass(frozen=True)
+class UseSpec:
+    """Teleport one BB84 public-key state then perform a USE measurement.
+
+    ``elimination_basis`` is the random X/Z basis selected by the recipient.
+    The raw outcome ``s`` eliminates ``|basis, 1-s>``; conversion to that
+    label lives in the protocol layer so the circuit remains a physical
+    measurement primitive.
+    """
+
+    sent: PauliLabel
+    elimination_basis: str
+    visibility: float
+    intercept_basis: str | None = None
+
+
+@dataclass(frozen=True)
 class ChshSpec:
     a: int
     b: int
@@ -108,6 +124,31 @@ def teleport_circuit(spec: TeleportSpec) -> QuantumCircuit:
         qc.z(q[2])
 
     _rotate_to_z(qc, q[2], spec.verify.basis)
+    qc.measure(q[2], out[0])
+    return qc
+
+
+def use_circuit(spec: UseSpec) -> QuantumCircuit:
+    """Circuit for BB84 unambiguous state elimination after teleportation."""
+    if spec.elimination_basis not in ("X", "Z"):
+        raise ValueError("USE requires an X or Z measurement basis")
+    q = QuantumRegister(3, "q")
+    bell = ClassicalRegister(2, "bell")
+    scratch = ClassicalRegister(1, "scratch")
+    out = ClassicalRegister(1, "out")
+    qc = QuantumCircuit(q, bell, scratch, out)
+
+    _distribute_bell_pair(qc, q[1], q[2], spec.visibility, spec.intercept_basis, scratch[0])
+    _prepare(qc, q[0], spec.sent)
+    qc.cx(q[0], q[1])
+    qc.h(q[0])
+    qc.measure(q[0], bell[0])
+    qc.measure(q[1], bell[1])
+    with qc.if_test((bell[1], 1)):
+        qc.x(q[2])
+    with qc.if_test((bell[0], 1)):
+        qc.z(q[2])
+    _rotate_to_z(qc, q[2], spec.elimination_basis)
     qc.measure(q[2], out[0])
     return qc
 

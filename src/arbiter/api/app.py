@@ -43,6 +43,7 @@ class SessionRequest(BaseModel):
     theta: float = Field(1.0, gt=0, le=1, description="fraction of rounds attacked (impersonation is always 1)")
     n_rounds: int = Field(1200, ge=40, le=20000)
     backend: Literal["analytic", "qiskit"] = "analytic"
+    protocol: Literal["prf", "qds"] = "prf"
     seed: int | None = None
     message: str = "transfer 100 units to account 42"
     trajectory: bool = Field(False, description="include the sequential log-evidence trajectory")
@@ -113,6 +114,10 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
     ledger = AuditLedger(keys, data_dir / "ledger.jsonl")
     storage = SQLiteStorage(data_dir / "arbiter.db")
     arbiter = Arbiter(params, ledger=ledger, nonces=storage.nonce_registry())
+    arbiters = {
+        "prf": arbiter,
+        "qds": Arbiter(params, ledger=ledger, nonces=storage.nonce_registry(), protocol="qds"),
+    }
     ledger_lock = Lock()
     demo_mode = os.environ.get("ARBITER_DEMO_MODE") == "1"
     if demo_mode:
@@ -178,7 +183,7 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
         return compare_detectors(theta, sessions, seed, params=arbiter.params)
 
     def _run_session(req: SessionRequest):
-        config = SessionConfig(n_rounds=req.n_rounds, params=arbiter.params)
+        config = SessionConfig(n_rounds=req.n_rounds, params=arbiter.params, protocol=req.protocol)
         t = simulate_session(req.hypothesis, req.theta, config, req.message, seed=req.seed, backend=req.backend)
         storage.save_session(t, seed=req.seed)
         return _verify(t, req.trajectory)
@@ -192,7 +197,7 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
     def _verify(t: Transcript, trajectory: bool = False) -> dict:
         try:
             with ledger_lock:
-                result = arbiter.verify(t).to_dict(trajectory=trajectory)
+                result = arbiters[t.protocol].verify(t).to_dict(trajectory=trajectory)
             storage.save_verdict(t.session_id, result)
             return result
         except ValueError as exc:  # hash-based one-time keys exhausted
