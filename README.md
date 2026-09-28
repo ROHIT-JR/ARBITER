@@ -173,6 +173,7 @@ tests/                per-attack fixtures, circuit/model agreement, false-alarm 
 ## Contributing, security and citing
 
 - **Contributing:** see [CONTRIBUTING.md](CONTRIBUTING.md). We especially welcome anyone working on trapped-ion hardware who can check the noise model against real data.
+- **Team explainer:** [docs/explainer.md](docs/explainer.md) is the plain-language, judge-facing guide and self-test.
 - **Security:** see [SECURITY.md](SECURITY.md) for how to report issues privately.
 - **Citing:** if you use ARBITER in research, please cite it using [CITATION.cff](CITATION.cff).
 
