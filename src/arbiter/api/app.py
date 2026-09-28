@@ -207,6 +207,11 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
 
     jobs = JobRunner(storage, _run_job)
 
+    @app.on_event("shutdown")
+    def shutdown_jobs() -> None:
+        """Release worker threads when an application instance is discarded."""
+        jobs.pool.shutdown(wait=False, cancel_futures=True)
+
     @app.post("/jobs", status_code=status.HTTP_202_ACCEPTED)
     def create_job(req: JobRequest, _=Depends(security.expensive)):  # noqa: B008
         return {"job_id": jobs.submit(req.kind, req.params)}
