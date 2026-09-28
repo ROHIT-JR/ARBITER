@@ -1,5 +1,4 @@
-"""Session-level simulation: key/nonce derivation, round scheduling and
-sampling outcomes under a chosen hypothesis.
+"""Session-level simulation: QDS key distribution, messaging and sampling.
 
 Two interchangeable backends produce identical transcript formats:
 
@@ -20,9 +19,10 @@ import numpy as np
 from qiskit import transpile
 from qiskit_aer import AerSimulator
 
-from arbiter.qds_simulation.circuits import ChshSpec, TeleportSpec, chsh_circuit, teleport_circuit
+from arbiter.qds_simulation.circuits import ChshSpec, TeleportSpec, UseSpec, chsh_circuit, teleport_circuit, use_circuit
 from arbiter.qds_simulation.model import (
     ALL_OR_NOTHING,
+    BB84_LABELS,
     CELLS,
     CHSH_SETTINGS,
     CHSH_SIGNS,
@@ -30,9 +30,12 @@ from arbiter.qds_simulation.model import (
     Hypothesis,
     RoundType,
     _attack_cell_probs,
+    _normalise_protocol,
+    received_state,
+    use_eliminated_label,
 )
 from arbiter.qrng import QRNG
-from arbiter.quantum.states import BASES, PauliLabel
+from arbiter.quantum.states import BASES, PauliLabel, projector
 
 ROUND_TYPES = (RoundType.SIGNATURE, RoundType.FRESHNESS, RoundType.CHSH)
 
@@ -42,6 +45,44 @@ class SessionConfig:
     n_rounds: int = 1200
     round_mix: tuple[float, float, float] = (0.5, 0.25, 0.25)  # sig, fresh, chsh
     params: ChannelParams = field(default_factory=ChannelParams)
+    protocol: str = "prf"
+
+
+@dataclass(frozen=True)
+class QDSDistribution:
+    """Classical record left by distribution of two BB84 quantum public keys.
+
+    ``private_keys[b, i]`` and ``eliminated[recipient, b, i]`` are indices in
+    :data:`BB84_LABELS`.  Recipients retain only their eliminated labels; the
+    signer keeps the private keys until the later messaging stage.
+    """
+
+    private_keys: np.ndarray
+    eliminated: np.ndarray
+
+    @property
+    def length(self) -> int:
+        return int(self.private_keys.shape[1])
+
+    @property
+    def recipients(self) -> int:
+        return int(self.eliminated.shape[0])
+
+    def reveal(self, message_bit: int) -> np.ndarray:
+        if message_bit not in (0, 1):
+            raise ValueError("message_bit must be 0 or 1")
+        return self.private_keys[message_bit].copy()
+
+    def mismatch_count(self, recipient: int, message_bit: int, revealed: np.ndarray | None = None) -> int:
+        if not 0 <= recipient < self.recipients:
+            raise ValueError("unknown recipient")
+        key = self.reveal(message_bit) if revealed is None else np.asarray(revealed, dtype=np.int8)
+        if key.shape != (self.length,) or np.any((key < 0) | (key >= len(BB84_LABELS))):
+            raise ValueError("revealed key must contain one BB84 label per position")
+        return int(np.count_nonzero(self.eliminated[recipient, message_bit] == key))
+
+    def mismatch_rate(self, recipient: int, message_bit: int, revealed: np.ndarray | None = None) -> float:
+        return self.mismatch_count(recipient, message_bit, revealed) / self.length
 
 
 @dataclass
@@ -63,6 +104,7 @@ class Transcript:
     theta: float
     attacked: np.ndarray
     backend: str
+    protocol: str = "prf"
 
     def counts(self) -> tuple[np.ndarray, np.ndarray]:
         n = np.bincount(self.cells, minlength=len(CELLS))
@@ -89,6 +131,129 @@ def derive_labels(seed: bytes, context: bytes, n: int) -> np.ndarray:
     return np.array(out[:n], dtype=np.int8)
 
 
+def derive_qds_private_keys(signer_key: bytes, length: int) -> np.ndarray:
+    """Derive the two uniformly random BB84 private keys held by the signer.
+
+    This is only a deterministic simulator convenience.  In a deployed QDS
+    system Alice samples these labels from private entropy before distribution.
+    """
+    if length < 1:
+        raise ValueError("QDS key length must be positive")
+    keys = []
+    for message_bit in (0, 1):
+        stream = hashlib.shake_256(signer_key + b"qds-distribution|" + bytes([message_bit])).digest(length)
+        keys.append(np.frombuffer(stream, dtype=np.uint8).astype(np.int8) & 0b11)
+    return np.stack(keys)
+
+
+def _distribution_hypothesis(hypothesis: Hypothesis) -> Hypothesis:
+    """Only channel manipulation changes public-key distribution in this model."""
+    return hypothesis if hypothesis is Hypothesis.CHANNEL_MANIPULATION else Hypothesis.LEGITIMATE
+
+
+def _sample_use_outcome(
+    label: PauliLabel,
+    basis: str,
+    hypothesis: Hypothesis,
+    params: ChannelParams,
+    rng: np.random.Generator,
+) -> int:
+    rho = received_state(_distribution_hypothesis(hypothesis), RoundType.SIGNATURE, label, params)
+    p_one = float(np.real(np.trace(projector(basis, 1) @ rho)))
+    return int(rng.random() < p_one)
+
+
+def distribute_qds_keys(
+    signer_key: bytes = b"arbiter-demo-signing-key",
+    length: int = 1200,
+    recipients: int = 1,
+    params: ChannelParams | None = None,
+    seed: int | None = None,
+    distribution_attack: Hypothesis = Hypothesis.LEGITIMATE,
+    backend: str = "analytic",
+) -> QDSDistribution:
+    """Run the QDS distribution stage for both message bits.
+
+    Alice teleports every BB84 public-key state across a separate Bell pair.
+    Each recipient chooses X or Z uniformly and records only the state
+    eliminated by that USE measurement.  ``distribution_attack`` models Eve's
+    intercept-resend channel during this stage; keyless forgery belongs to the
+    later messaging reveal and is represented by ``mismatch_count(...,
+    revealed=...)``.
+    """
+    if recipients < 1:
+        raise ValueError("at least one recipient is required")
+    if backend not in ("analytic", "qiskit"):
+        raise ValueError(f"unknown backend {backend!r}")
+    params = params or ChannelParams()
+    private_keys = derive_qds_private_keys(signer_key, length)
+    rng = np.random.default_rng(seed)
+    bases = np.where(rng.integers(0, 2, size=(recipients, 2, length)) == 0, "Z", "X")
+    eliminated = np.empty((recipients, 2, length), dtype=np.int8)
+
+    if backend == "analytic":
+        for recipient in range(recipients):
+            for message_bit in (0, 1):
+                for position, code in enumerate(private_keys[message_bit]):
+                    outcome = _sample_use_outcome(
+                        BB84_LABELS[int(code)],
+                        str(bases[recipient, message_bit, position]),
+                        distribution_attack,
+                        params,
+                        rng,
+                    )
+                    eliminated_label = use_eliminated_label(str(bases[recipient, message_bit, position]), outcome)
+                    eliminated[recipient, message_bit, position] = BB84_LABELS.index(eliminated_label)
+    else:
+        eliminated = _distribute_qds_keys_qiskit(private_keys, bases, params, distribution_attack, rng)
+    return QDSDistribution(private_keys=private_keys, eliminated=eliminated)
+
+
+def _distribute_qds_keys_qiskit(
+    private_keys: np.ndarray,
+    bases: np.ndarray,
+    params: ChannelParams,
+    distribution_attack: Hypothesis,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Aer counterpart of :func:`distribute_qds_keys`, batched by USE spec."""
+    shape = bases.shape
+    eliminated = np.empty(shape, dtype=np.int8)
+    groups: dict[UseSpec, list[tuple[int, int, int]]] = defaultdict(list)
+    intercepts = (
+        rng.integers(0, len(BASES), size=shape) if distribution_attack is Hypothesis.CHANNEL_MANIPULATION else None
+    )
+    for recipient in range(shape[0]):
+        for message_bit in (0, 1):
+            for position, code in enumerate(private_keys[message_bit]):
+                spec = UseSpec(
+                    BB84_LABELS[int(code)],
+                    str(bases[recipient, message_bit, position]),
+                    params.visibility,
+                    (BASES[int(intercepts[recipient, message_bit, position])] if intercepts is not None else None),
+                )
+                groups[spec].append((recipient, message_bit, position))
+
+    specs = list(groups)
+    sim = AerSimulator()
+    circuits = transpile([use_circuit(spec) for spec in specs], sim, num_processes=1)
+    result = sim.run(
+        circuits,
+        shots=max(len(indices) for indices in groups.values()),
+        memory=True,
+        seed_simulator=int(rng.integers(2**31)),
+    ).result()
+    for circuit_index, spec in enumerate(specs):
+        for (recipient, message_bit, position), memory in zip(
+            groups[spec], result.get_memory(circuit_index)[: len(groups[spec])], strict=True
+        ):
+            outcome = int(memory.split()[0])
+            eliminated[recipient, message_bit, position] = BB84_LABELS.index(
+                use_eliminated_label(spec.elimination_basis, outcome)
+            )
+    return eliminated
+
+
 def simulate_session(
     hypothesis: Hypothesis = Hypothesis.LEGITIMATE,
     theta: float = 1.0,
@@ -103,6 +268,7 @@ def simulate_session(
     distinct QRNG nonces (identical calls do reproduce the same nonce, which
     the verifier correctly treats as a resubmission)."""
     config = config or SessionConfig()
+    protocol = _normalise_protocol(config.protocol)
     if hypothesis is Hypothesis.LEGITIMATE:
         theta = 0.0
     elif hypothesis in ALL_OR_NOTHING:
@@ -121,17 +287,22 @@ def simulate_session(
     cells = np.where(rtypes == 2, 2 + settings, rtypes).astype(np.int64)
     attacked = rng.random(n) < theta
 
-    sig_labels = derive_labels(signer_key, b"sig|" + message.encode(), n)
+    if protocol == "qds":
+        message_bit = hashlib.sha256(message.encode()).digest()[0] & 1
+        qds_keys = derive_qds_private_keys(signer_key, n)
+        sig_labels = np.array([BB84_LABELS[int(code)].index for code in qds_keys[message_bit]], dtype=np.int8)
+    else:
+        sig_labels = derive_labels(signer_key, b"sig|" + message.encode(), n)
     fresh_labels = derive_labels(nonce, b"fresh", n)
     honest = np.where(rtypes == 0, sig_labels, fresh_labels)
 
     if backend == "analytic":
-        legit = np.array(_attack_cell_probs(Hypothesis.LEGITIMATE, config.params))
-        attack = np.array(_attack_cell_probs(hypothesis, config.params))
+        legit = np.array(_attack_cell_probs(Hypothesis.LEGITIMATE, config.params, protocol))
+        attack = np.array(_attack_cell_probs(hypothesis, config.params, protocol))
         p = np.where(attacked, attack[cells], legit[cells])
         outcomes = (rng.random(n) < p).astype(np.int8)
     elif backend == "qiskit":
-        outcomes = _run_qiskit(hypothesis, rtypes, settings, honest, attacked, config.params, rng)
+        outcomes = _run_qiskit(hypothesis, rtypes, settings, honest, attacked, config.params, rng, protocol)
     else:
         raise ValueError(f"unknown backend {backend!r}")
 
@@ -145,6 +316,7 @@ def simulate_session(
         theta=theta,
         attacked=attacked,
         backend=backend,
+        protocol=protocol,
     )
 
 
@@ -175,10 +347,20 @@ def _round_spec(
     return TeleportSpec(sent, honest, v, pre_noise, intercept, h is Hypothesis.IMPERSONATION)
 
 
-def _run_qiskit(h, rtypes, settings, labels, attacked, params, rng) -> np.ndarray:
+def _run_qiskit(h, rtypes, settings, labels, attacked, params, rng, protocol: str = "prf") -> np.ndarray:
     groups: dict[object, list[int]] = defaultdict(list)
     for i in range(len(rtypes)):
-        spec = _round_spec(h, rtypes[i], settings[i], labels[i], attacked[i], params, rng)
+        if protocol == "qds" and ROUND_TYPES[rtypes[i]] is RoundType.SIGNATURE:
+            effective = h if attacked[i] and h is Hypothesis.CHANNEL_MANIPULATION else Hypothesis.LEGITIMATE
+            intercept = BASES[int(rng.integers(3))] if effective is Hypothesis.CHANNEL_MANIPULATION else None
+            spec = UseSpec(
+                PauliLabel.from_index(int(labels[i])),
+                ("Z", "X")[int(rng.integers(2))],
+                params.visibility,
+                intercept,
+            )
+        else:
+            spec = _round_spec(h, rtypes[i], settings[i], labels[i], attacked[i], params, rng)
         groups[spec].append(i)
 
     specs = list(groups)
@@ -186,6 +368,8 @@ def _run_qiskit(h, rtypes, settings, labels, attacked, params, rng) -> np.ndarra
     for spec in specs:
         if isinstance(spec, ChshSpec):
             circuits.append(chsh_circuit(spec))
+        elif isinstance(spec, UseSpec):
+            circuits.append(use_circuit(spec))
         else:
             circuits.append(teleport_circuit(spec))
 
@@ -213,6 +397,13 @@ def _run_qiskit(h, rtypes, settings, labels, attacked, params, rng) -> np.ndarra
                 parity = int(ab[0]) ^ int(ab[1])
                 sign = CHSH_SIGNS[CHSH_SETTINGS.index((spec.a, spec.b))]
                 outcomes[i] = parity if sign == 1 else 1 - parity
+            elif isinstance(spec, UseSpec):
+                eliminated = use_eliminated_label(spec.elimination_basis, int(regs[0]))
+                if attacked[i] and h in (Hypothesis.FORGERY, Hypothesis.REPLAY, Hypothesis.IMPERSONATION):
+                    revealed = BB84_LABELS[int(rng.integers(len(BB84_LABELS)))]
+                else:
+                    revealed = spec.sent
+                outcomes[i] = int(eliminated == revealed)
             else:
                 got = int(regs[0])
                 outcomes[i] = int(got != spec.verify.bit)

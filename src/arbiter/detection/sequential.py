@@ -63,13 +63,15 @@ class SequentialDetector:
         alpha: float = 0.01,
         theta_grid: np.ndarray = DEFAULT_THETA_GRID,
         attribution_confidence: float = 0.99,
+        protocol: str = "prf",
     ):
         self.params = params or ChannelParams()
         self.alpha = alpha
         self.attribution_confidence = attribution_confidence
         self.theta_grid = np.asarray(theta_grid, float)
-        p0 = cell_probabilities(Hypothesis.LEGITIMATE, 0.0, self.params)
-        _, alt, self.groups = build_alternatives(self.params, self.theta_grid)
+        self.protocol = protocol
+        p0 = cell_probabilities(Hypothesis.LEGITIMATE, 0.0, self.params, protocol)
+        _, alt, self.groups = build_alternatives(self.params, self.theta_grid, protocol)
         # increment[outcome, cell, component] = log p_alt - log p_0
         self._inc = np.stack(
             [

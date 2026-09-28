@@ -25,6 +25,48 @@ M(ρ) = ⅓ Σ_b Σ_s Π_{b,s} ρ Π_{b,s} = Δ_{1/3}(ρ)
 
 because each dephasing keeps one Bloch component, and the average keeps ⅓ of each.
 
+## 1.1 QDS distribution and messaging
+
+The simulator supports two signature constructions.  The default `protocol="prf"`
+keeps the original SHAKE-derived Pauli-eigenstate labels, so previous sessions
+and detector tests stay bit-for-bit reproducible.  `protocol="qds"` models the
+two-stage quantum-digital-signature construction below.
+
+```mermaid
+sequenceDiagram
+    participant A as Alice (signer)
+    participant B as Bob (recipient)
+    A->>B: Distribution: teleport BB84 public-key state |ψᵢᵇ⟩
+    B->>B: Random X/Z USE measurement; store one eliminated state eᵢᵇ
+    Note over A,B: Repeat for i = 1…L and b ∈ {0,1}
+    A->>B: Messaging: reveal message bit b and private key (ψ₁ᵇ,…,ψᴸᵇ)
+    B->>B: Count mismatches: M = Σᵢ 1[eᵢᵇ = ψᵢᵇ]
+```
+
+The state set is BB84, `{|0⟩, |1⟩, |+⟩, |−⟩}`.  Bob selects a basis
+`r ∈ {X,Z}` uniformly and obtains bit `s`.  He can unambiguously eliminate
+`|r,1-s⟩`, because that state could not have produced `s` in basis `r`.
+No attempt is made to identify the prepared state.  The signature cell is the
+messaging mismatch statistic `M`.
+
+For a teleported honest state over a Werner link of visibility `v`, a USE
+mismatch needs both the matching basis (probability `1/2`) and a depolarizing
+bit flip (probability `(1-v)/2`):
+
+```
+P_honest(M_i = 1) = (1-v)/4.
+```
+
+Thus it is exactly zero on a noiseless link.  During distribution, Eve's
+intercept-resend attack is evaluated with the same Born-rule teleportation
+state before this USE measurement.  During messaging, a forger without the
+private key selects a BB84 reveal independent of Bob's eliminated label.  The
+latter is uniform over four labels, hence the best achievable mismatch rate is
+`P_forge(M_i = 1) = 1/4`; choosing a different fixed or randomized BB84 label
+cannot improve it.  These identities are implemented by
+`use_mismatch_probability` and `qds_forgery_mismatch_rate` and checked against
+Aer in `test_qds_use_aer_matches_density_matrix_model`.
+
 ## 2. Observation model
 
 The verifier's observations fall into six Bernoulli cells: signature mismatch, freshness mismatch, and four CHSH-setting cells. For hypothesis `h` at strength `θ`:

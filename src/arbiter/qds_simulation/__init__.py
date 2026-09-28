@@ -1,23 +1,41 @@
 from arbiter.qds_simulation.model import (
     ATTACKS,
+    BB84_LABELS,
     CELLS,
     ChannelParams,
     Hypothesis,
     RoundType,
     cell_probabilities,
     expected_chsh,
+    qds_forgery_mismatch_rate,
+    use_eliminated_label,
+    use_mismatch_probability,
 )
-from arbiter.qds_simulation.protocol import SessionConfig, Transcript, simulate_session
+from arbiter.qds_simulation.protocol import (
+    QDSDistribution,
+    SessionConfig,
+    Transcript,
+    derive_qds_private_keys,
+    distribute_qds_keys,
+    simulate_session,
+)
 
 __all__ = [
     "ATTACKS",
+    "BB84_LABELS",
     "CELLS",
     "ChannelParams",
     "Hypothesis",
+    "QDSDistribution",
     "RoundType",
     "SessionConfig",
     "Transcript",
     "cell_probabilities",
+    "derive_qds_private_keys",
+    "distribute_qds_keys",
     "expected_chsh",
+    "qds_forgery_mismatch_rate",
     "simulate_session",
+    "use_eliminated_label",
+    "use_mismatch_probability",
 ]

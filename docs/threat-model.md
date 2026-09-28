@@ -4,7 +4,16 @@ ARBITER makes **statistical claims relative to an explicit model**. This page is
 
 ## Parties and protocol
 
-- **Signer (Alice)** holds a private signing key. The key and message deterministically select (via SHAKE-256) a Pauli eigenstate for each signature round.
+- **Signer (Alice)** holds a private signing key.  The default `protocol="prf"`
+  mode deterministically selects (via SHAKE-256) a Pauli eigenstate for each
+  signature round, preserving the original demonstration protocol.  The
+  `protocol="qds"` mode instead follows QDS's two stages: Alice distributes a
+  BB84 quantum public key for each message bit by teleportation; Bob randomly
+  measures X or Z and stores the one state that outcome eliminates.  Later,
+  Alice reveals the classical private-key labels for the message bit and Bob's
+  signature statistic is the number of revealed labels equal to his stored
+  eliminations.  Bob therefore has partial classical knowledge, not a copy of
+  the private key.
 - **Verifier (Bob)** issues a fresh 256-bit session nonce from the QRNG. He randomly chooses a type for each round, keeping the choice secret until measurement:
   - **Signature round**: Alice teleports her key-selected eigenstate. Bob applies the Pauli correction `X^m2 Z^m1` and measures projectively in that eigenstate's basis.
   - **Freshness round**: the same procedure, but the eigenstate comes from *today's nonce*.
@@ -17,10 +26,16 @@ Each attack is a replacement of the per-round quantum state. It hits a fraction 
 
 | Attack | Adversary's capability | What it does to the rounds | Fingerprint |
 |---|---|---|---|
-| **Forgery** | Has legitimate network access and knows the public nonce, but not the key | Signature rounds carry a key-independent state. Any fixed guess mismatches a uniformly random Pauli key with probability exactly ½ (see `test_forger_best_guess_is_coin_flip`) | Signature errors → ½. Freshness and CHSH normal |
+| **Forgery** | Has legitimate network access and knows the public nonce, but not the key | In `prf` mode signature rounds carry a key-independent state, so a Pauli guess mismatches with probability ½. In `qds` mode this is a forged messaging reveal; it collides with Bob's uniformly distributed eliminated BB84 label with probability ¼. | Signature errors → ½ (`prf`) or ¼ (`qds`). Freshness and CHSH normal |
 | **Impersonation** | Holds neither the key nor any of Alice's registered Bell halves | Correction bits and CHSH reports are uncorrelated with Bob's qubit | Everything → ½, S → 0 |
 | **Replay** | Recorded a past session (states in quantum memory with storage visibility 0.85) and re-injects it under today's challenge | Signature rounds are valid but slightly decohered. Freshness rounds encode the *old* nonce. CHSH reports come from old settings | Freshness errors → ½, small rise in signature errors, S → 0 |
 | **Channel manipulation** | Intercept-resend on Bob's half of the Bell pair in a random Pauli basis | Visibility drops to `v/3` on attacked rounds (measure-resend = depolarizing ⅓, see `test_measure_resend_is_depolarizing_one_third`) | Signature and freshness errors rise *together*; S drops in proportion |
+
+In QDS mode channel manipulation happens during the distribution phase, before
+Bob records eliminated states.  Its signature likelihood is therefore derived
+from the attacked teleported density matrix and the USE rule, rather than from
+a hand-set mismatch probability.  Forgery is a messaging-phase attack: it
+changes the revealed classical labels but not the earlier quantum distribution.
 
 A verbatim resubmission of an old transcript (a classical replay) is caught separately by the nonce registry.
 
