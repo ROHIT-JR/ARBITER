@@ -6,8 +6,9 @@ A small React + TypeScript (Vite) front end for the ARBITER API. It lets you:
 - see the layered verdict and attribution posterior,
 - watch the sequential log-evidence trajectory,
 - resubmit a transcript verbatim (to demonstrate classical replay),
-- inspect and verify the audit ledger, and
-- compare against the information-theoretic limits.
+- inspect and verify the audit ledger,
+- compare against the information-theoretic limits, and
+- compare ARBITER and fixed-threshold accuracy across many seeded sessions.
 
 It uses no UI or chart libraries. The chart is plain SVG, and colours follow the system light/dark theme.
 
@@ -41,5 +42,8 @@ src/
     EvidenceChart.tsx     sequential e-process trajectory (SVG)
     LedgerPanel.tsx       recent entries + chain verification
     BoundsTable.tsx       quantum vs achieved Chernoff exponents
+    AccuracyPanel.tsx     comparison controls, loading and error states
+    ConfusionMatrix.tsx   text-readable colour-scaled 5×5 matrix
+    ThetaCurve.tsx        attribution-vs-θ curves (SVG)
   styles.css              theme tokens (light + dark)
 ```
