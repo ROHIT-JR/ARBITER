@@ -18,5 +18,5 @@ Examples of what's in scope:
 - The QRNG and the quantum channel are simulated. See [docs/threat-model.md](docs/threat-model.md).
 - Ledger keys are stored unencrypted in `$ARBITER_DATA_DIR/ledger_keys.json`. Protect that directory.
 - The Merkle-Lamport key has a fixed capacity: 2^10 entries by default. Once it is exhausted, the API returns HTTP 409 and the keys must be rotated.
-- The API has no authentication. Don't expose it beyond localhost.
+- Without `ARBITER_API_KEYS`, the API is intended for localhost-only use. Set a comma-separated key list and send `X-API-Key` to protect expensive endpoints. `ARBITER_RATE_LIMIT` and `ARBITER_RATE_WINDOW` tune the per-key/IP in-process rate limiter; `ARBITER_CORS_ORIGINS` is empty by default.
 - `POST /pki/scan` is disabled unless `ARBITER_PKI_SCAN=1` and a hostname suffix allowlist is supplied through `ARBITER_PKI_SCAN_ALLOW`. Keep that allowlist narrow; the scanner refuses non-public DNS results, but it still makes outbound connections to approved services.

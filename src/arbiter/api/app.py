@@ -11,12 +11,16 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
+from threading import Lock
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from arbiter import __version__
+from arbiter.api.jobs import JobRunner
+from arbiter.api.security import Security
 from arbiter.audit_ledger import AuditLedger, LedgerKeys
 from arbiter.detection import attack_bounds, compare_detectors
 from arbiter.noise import PRESETS
@@ -71,6 +75,11 @@ class TlsScanRequest(BaseModel):
     crqc_year: int = Field(2035, ge=2025, le=2100)
 
 
+class JobRequest(BaseModel):
+    kind: Literal["session", "compare", "hardware"]
+    params: dict = Field(default_factory=dict)
+
+
 def _summarise_entry(e: dict) -> dict:
     p = e["payload"]
     out = {"index": e["index"], "timestamp": e["timestamp"], "hash": e["hash"], "prev_hash": e["prev_hash"]}
@@ -104,6 +113,7 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
     ledger = AuditLedger(keys, data_dir / "ledger.jsonl")
     storage = SQLiteStorage(data_dir / "arbiter.db")
     arbiter = Arbiter(params, ledger=ledger, nonces=storage.nonce_registry())
+    ledger_lock = Lock()
     demo_mode = os.environ.get("ARBITER_DEMO_MODE") == "1"
     if demo_mode:
         logging.getLogger(__name__).warning(
@@ -114,11 +124,16 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
     scan_allowlist = tuple(
         item.strip() for item in os.environ.get("ARBITER_PKI_SCAN_ALLOW", "").split(",") if item.strip()
     )
+    security = Security()
 
     app = FastAPI(
         title="ARBITER",
         version=__version__,
         description="Unified attack attribution for teleportation-based quantum digital signatures.",
+    )
+    origins = [value for value in os.environ.get("ARBITER_CORS_ORIGINS", "").split(",") if value]
+    app.add_middleware(
+        CORSMiddleware, allow_origins=origins, allow_methods=["*"], allow_headers=["*"], allow_credentials=False
     )
 
     @app.get("/health")
@@ -153,28 +168,68 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
         return attack_bounds(theta, SessionConfig(params=arbiter.params), epsilon)
 
     @app.get("/compare")
-    def compare(
+    def compare(  # noqa: B008
         theta: float = Query(1.0, gt=0, le=1),
         sessions: int = Query(100, ge=1, le=1000),
         seed: int = Query(26141, ge=0, le=2**32 - 1),
+        _=Depends(security.expensive),  # noqa: B008
     ):
         """Unified GLRT vs equally calibrated fixed-threshold baselines."""
         return compare_detectors(theta, sessions, seed, params=arbiter.params)
 
-    @app.post("/sessions")
-    def run_session(req: SessionRequest):
+    def _run_session(req: SessionRequest):
         config = SessionConfig(n_rounds=req.n_rounds, params=arbiter.params)
         t = simulate_session(req.hypothesis, req.theta, config, req.message, seed=req.seed, backend=req.backend)
         storage.save_session(t, seed=req.seed)
         return _verify(t, req.trajectory)
 
+    @app.post("/sessions")
+    def run_session(req: SessionRequest, _=Depends(security.expensive)):  # noqa: B008
+        if req.backend == "qiskit" and req.n_rounds > 5000:
+            raise HTTPException(422, "use POST /jobs for Qiskit sessions above 5000 rounds")
+        return _run_session(req)
+
     def _verify(t: Transcript, trajectory: bool = False) -> dict:
         try:
-            result = arbiter.verify(t).to_dict(trajectory=trajectory)
+            with ledger_lock:
+                result = arbiter.verify(t).to_dict(trajectory=trajectory)
             storage.save_verdict(t.session_id, result)
             return result
         except ValueError as exc:  # hash-based one-time keys exhausted
             raise HTTPException(409, f"audit ledger cannot sign: {exc}; rotate keys") from exc
+
+    def _run_job(kind: str, job_params: dict) -> dict:
+        if kind == "session":
+            return _run_session(SessionRequest.model_validate(job_params))
+        if kind == "compare":
+            return compare_detectors(
+                float(job_params.get("theta", 1)),
+                int(job_params.get("sessions", 100)),
+                int(job_params.get("seed", 26141)),
+                params=arbiter.params,
+            )
+        raise ValueError("hardware jobs require the optional hardware backend")
+
+    jobs = JobRunner(storage, _run_job)
+
+    @app.on_event("shutdown")
+    def shutdown_jobs() -> None:
+        """Release worker threads when an application instance is discarded."""
+        jobs.pool.shutdown(wait=False, cancel_futures=True)
+
+    @app.post("/jobs", status_code=status.HTTP_202_ACCEPTED)
+    def create_job(req: JobRequest, request: Request, _=Depends(security.expensive)):  # noqa: B008
+        return {"job_id": jobs.submit(req.kind, req.params, security.identity(request))}
+
+    @app.get("/jobs/{job_id}")
+    def get_job(job_id: str, request: Request, _=Depends(security.expensive)):  # noqa: B008
+        job = storage.job(job_id)
+        if job is None:
+            raise HTTPException(404, "unknown job id")
+        if job["owner"] != security.identity(request):
+            raise HTTPException(403, "job belongs to another API identity")
+        job.pop("owner")
+        return job
 
     @app.post("/sessions/{session_id}/resubmit")
     def resubmit(session_id: str, trajectory: bool = Query(False)):
@@ -201,7 +256,8 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
 
     @app.get("/ledger/verify")
     def ledger_verify():
-        return ledger.verify().to_dict()
+        with ledger_lock:
+            return ledger.verify().to_dict()
 
     @app.get("/ledger/{index}")
     def ledger_entry(index: int):
