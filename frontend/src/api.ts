@@ -74,6 +74,34 @@ export interface BoundRow {
   rounds_for_epsilon_measured: number;
 }
 
+export type DetectorName = "unified" | "baseline" | "baseline_bonferroni";
+
+export interface AttackAccuracy {
+  detection_rate: number;
+  correct_attribution_rate: number;
+}
+
+export interface DetectorComparison {
+  confusion_matrix: Record<Hypothesis, Record<Hypothesis, number>>;
+  false_alarm_rate: number;
+  attacks: Record<Exclude<Hypothesis, "legitimate">, AttackAccuracy>;
+  thresholds?: Record<string, number>;
+}
+
+export interface ComparisonResult {
+  metadata: {
+    theta: number;
+    sessions_per_hypothesis: number;
+    seed: number;
+    n_rounds: number;
+    alpha: number;
+    cell_counts: number[];
+    design: string;
+  };
+  labels: Hypothesis[];
+  detectors: Record<DetectorName, DetectorComparison>;
+}
+
 export const UNREACHABLE = "Cannot reach the ARBITER API. Is uvicorn running on port 8000?";
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
@@ -109,6 +137,8 @@ export const api = {
   ledger: (limit = 15) => call<LedgerSummary>(`/ledger?limit=${limit}`),
   verifyLedger: () => call<LedgerReport>("/ledger/verify"),
   bounds: (theta: number) => call<BoundRow[]>(`/bounds?theta=${theta}`),
+  compare: (theta: number, sessions: number, seed: number) =>
+    call<ComparisonResult>(`/compare?theta=${theta}&sessions=${sessions}&seed=${seed}`),
 };
 
-export const label = (h: string) => h.replace("_", " ");
+export const label = (h: string) => h.replaceAll("_", " ");

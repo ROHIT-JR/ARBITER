@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api, type SessionRequest, type Verdict } from "./api";
+import AccuracyPanel from "./components/AccuracyPanel";
 import BoundsTable from "./components/BoundsTable";
 import EvidenceChart from "./components/EvidenceChart";
 import LedgerPanel from "./components/LedgerPanel";
@@ -8,6 +9,9 @@ import SessionForm from "./components/SessionForm";
 import VerdictPanel from "./components/VerdictPanel";
 
 export default function App() {
+  const [theme, setTheme] = useState<"light" | "dark">(() =>
+    window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
+  );
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,6 +27,10 @@ export default function App() {
     const id = window.setInterval(checkHealth, 10_000);
     return () => window.clearInterval(id);
   }, [checkHealth]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
 
   const run = useCallback(async (action: () => Promise<Verdict>) => {
     setBusy(true);
@@ -48,12 +56,22 @@ export default function App() {
           <h1>ARBITER</h1>
           <p className="muted">Unified attack attribution for teleportation-based quantum digital signatures</p>
         </div>
-        <span className={`status ${online ? "ok" : online === false ? "bad" : ""}`} role="status">
-          {online === null ? "connecting…" : online ? "API online" : "API offline: start uvicorn"}
-        </span>
+        <div className="header-actions">
+          <button type="button" className="secondary theme-toggle" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}>
+            {theme === "dark" ? "Light theme" : "Dark theme"}
+          </button>
+          <span className={`status ${online ? "ok" : online === false ? "bad" : ""}`} role="status">
+            {online === null ? "connecting…" : online ? "API online" : "API offline: start uvicorn"}
+          </span>
+        </div>
       </header>
 
       <main className="grid">
+        <section className="card span-3 accuracy-card">
+          <AccuracyPanel />
+        </section>
+
         <section className="card">
           <h2>Simulate a session</h2>
           <SessionForm busy={busy} onRun={onRun} onResubmit={onResubmit} />
