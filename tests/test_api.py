@@ -18,6 +18,18 @@ def test_health_and_model(client):
     assert len(client.get("/bounds").json()) == 4
 
 
+def test_compare_endpoint(client):
+    response = client.get("/compare", params={"theta": 0.3, "sessions": 5, "seed": 11})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["metadata"]["theta"] == 0.3
+    assert set(body["detectors"]) == {"unified", "baseline", "baseline_bonferroni"}
+    for detector in body["detectors"].values():
+        assert sum(detector["confusion_matrix"]["forgery"].values()) == 5
+        assert 0 <= detector["attacks"]["forgery"]["detection_rate"] <= 1
+    assert client.get("/compare", params={"theta": 0, "sessions": 5}).status_code == 422
+
+
 def test_session_verdicts_land_in_ledger(client):
     ok = client.post("/sessions", json={"seed": 1}).json()
     assert ok["decision"] == "ACCEPT" and ok["attribution"] == "legitimate"

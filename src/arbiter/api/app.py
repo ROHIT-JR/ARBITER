@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from arbiter import __version__
 from arbiter.audit_ledger import AuditLedger, LedgerKeys
-from arbiter.detection import attack_bounds
+from arbiter.detection import attack_bounds, compare_detectors
 from arbiter.noise import PRESETS
 from arbiter.pipeline import Arbiter
 from arbiter.qds_simulation import (
@@ -126,6 +126,15 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
     def bounds(theta: float = Query(1.0, gt=0, le=1), epsilon: float = Query(1e-6, gt=0, lt=1)):
         """Helstrom / quantum-Chernoff limits vs what ARBITER's measurements achieve."""
         return attack_bounds(theta, SessionConfig(params=arbiter.params), epsilon)
+
+    @app.get("/compare")
+    def compare(
+        theta: float = Query(1.0, gt=0, le=1),
+        sessions: int = Query(100, ge=1, le=1000),
+        seed: int = Query(26141, ge=0, le=2**32 - 1),
+    ):
+        """Unified GLRT vs equally calibrated fixed-threshold baselines."""
+        return compare_detectors(theta, sessions, seed, params=arbiter.params)
 
     @app.post("/sessions")
     def run_session(req: SessionRequest):
