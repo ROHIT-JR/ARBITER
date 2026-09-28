@@ -1,12 +1,12 @@
 # ARBITER offline demo script
 
 This is the five-minute, no-Wi-Fi walkthrough.  Build the dashboard once
-before packaging the repository; the presentation itself needs only Python and
-the pre-built `frontend/dist` files.
+before packaging the repository; `npm run sync:demo` places those built files
+inside the Python package, so the presentation itself needs only Python.
 
 ## Before leaving for the venue
 
-1. On the release checkout, run `cd frontend && npm ci && npm run build`.
+1. On the release checkout, run `cd frontend && npm ci && npm run build && npm run sync:demo`.
 2. Disconnect from the network and run `arbiter demo --check`.  Every line
    should be `PASSED`, except the optional cached-hardware preset when no
    hardware capture is bundled.

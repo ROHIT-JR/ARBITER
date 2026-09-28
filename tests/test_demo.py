@@ -1,4 +1,8 @@
 import asyncio
+import os
+import subprocess
+import sys
+from pathlib import Path
 
 import httpx
 import pytest
@@ -49,10 +53,55 @@ def test_static_dashboard_and_api_prefix_are_served_by_one_app(tmp_path, monkeyp
 
 
 def test_built_index_rejects_external_urls(tmp_path):
-    (tmp_path / "index.html").write_text('<script src="https://cdn.example.test/app.js"></script>')
-    assert dashboard_is_offline(tmp_path) is False
+    assets = tmp_path / "assets"
+    assets.mkdir()
     (tmp_path / "index.html").write_text('<script src="/assets/app.js"></script>')
+    (assets / "app.js").write_text('fetch("https://cdn.example.test/data")')
+    assert dashboard_is_offline(tmp_path) is False
+    (assets / "app.js").write_text('fetch("/api/health")')
     assert dashboard_is_offline(tmp_path) is True
+
+
+def test_wheel_installs_dashboard_resources_without_node(tmp_path):
+    """The release launcher resolves its static files from the installed wheel."""
+    repository = Path(__file__).parents[1]
+    wheel_dir = tmp_path / "wheel"
+    target = tmp_path / "installed"
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "wheel",
+            "--no-deps",
+            "--no-build-isolation",
+            "--wheel-dir",
+            str(wheel_dir),
+            ".",
+        ],
+        check=True,
+        cwd=repository,
+    )
+    wheel = next(wheel_dir.glob("arbiter_qds-*.whl"))
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--no-deps", "--target", str(target), str(wheel)],
+        check=True,
+        cwd=tmp_path,
+    )
+    environment = os.environ | {"PYTHONPATH": str(target)}
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from arbiter.api.app import dashboard_dist; "
+            "path = dashboard_dist(); "
+            "assert (path / 'index.html').is_file(), path; "
+            "assert (path / 'assets').is_dir(), path",
+        ],
+        check=True,
+        cwd=tmp_path,
+        env=environment,
+    )
 
 
 def test_demo_check_uses_a_fresh_throwaway_data_directory(monkeypatch):

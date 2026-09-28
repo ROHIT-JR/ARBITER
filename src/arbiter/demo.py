@@ -28,13 +28,24 @@ class DemoCheckResult:
     detail: str
 
 
-_EXTERNAL_URL = re.compile(r"(?:https?:)?//(?!127\.0\.0\.1(?::\d+)?(?:/|$)|localhost(?::\d+)?(?:/|$))", re.IGNORECASE)
+_EXTERNAL_URL = r"(?:https?:)?//(?!127\.0\.0\.1(?::\d+)?(?:/|$)|localhost(?::\d+)?(?:/|$))"
+_HTML_OR_CSS_EXTERNAL = re.compile(_EXTERNAL_URL, re.IGNORECASE)
+_JS_EXTERNAL_REQUEST = re.compile(
+    rf"(?:fetch|sendBeacon|open|WebSocket)\s*\(\s*[\"']{_EXTERNAL_URL}",
+    re.IGNORECASE,
+)
 
 
 def dashboard_is_offline(static_dir: str | Path) -> bool:
-    """Return whether a built dashboard avoids CDN and other external URLs."""
-    index = Path(static_dir) / "index.html"
-    return index.is_file() and _EXTERNAL_URL.search(index.read_text(encoding="utf-8")) is None
+    """Return whether every served HTML, CSS and JS asset avoids external URLs."""
+    root = Path(static_dir)
+    assets = [path for path in root.rglob("*") if path.suffix in {".html", ".css", ".js"}]
+    for asset in assets:
+        content = asset.read_text(encoding="utf-8")
+        checker = _JS_EXTERNAL_REQUEST if asset.suffix == ".js" else _HTML_OR_CSS_EXTERNAL
+        if checker.search(content):
+            return False
+    return bool(assets)
 
 
 def demo_catalog() -> dict[str, Any]:

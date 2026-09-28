@@ -102,7 +102,7 @@ cd frontend && npm install && npm run dev   # http://localhost:5173
 then use only Python at the venue:
 
 ```bash
-cd frontend && npm ci && npm run build
+cd frontend && npm ci && npm run build && npm run sync:demo
 cd ..
 arbiter demo --check  # deterministic, headless pre-flight
 arbiter demo          # opens http://127.0.0.1:8000/ with throwaway local data
