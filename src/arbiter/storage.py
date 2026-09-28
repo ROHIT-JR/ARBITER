@@ -90,11 +90,15 @@ class SQLiteStorage:
                 CREATE INDEX IF NOT EXISTS verdicts_session_id_id ON verdicts(session_id, id DESC);
                 CREATE TABLE IF NOT EXISTS jobs (
                     id TEXT PRIMARY KEY, kind TEXT NOT NULL, params TEXT NOT NULL,
+                    owner TEXT NOT NULL DEFAULT 'anonymous:local',
                     status TEXT NOT NULL, progress REAL NOT NULL, result TEXT,
                     error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
                 );
                 """
             )
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(jobs)")}
+            if "owner" not in columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN owner TEXT NOT NULL DEFAULT 'anonymous:local'")
             connection.execute(
                 "UPDATE jobs SET status='failed', progress=1, error='interrupted by server restart', updated_at=? "
                 "WHERE status IN ('queued', 'running')",
@@ -173,12 +177,13 @@ class SQLiteStorage:
                 ),
             )
 
-    def create_job(self, job_id: str, kind: str, params: dict[str, Any]) -> None:
+    def create_job(self, job_id: str, kind: str, params: dict[str, Any], owner: str = "anonymous:local") -> None:
         with self._connect() as connection:
             now = _utc_now()
             connection.execute(
-                "INSERT INTO jobs VALUES (?, ?, ?, 'queued', 0, NULL, NULL, ?, ?)",
-                (job_id, kind, json.dumps(params), now, now),
+                "INSERT INTO jobs (id, kind, params, owner, status, progress, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, 'queued', 0, ?, ?)",
+                (job_id, kind, json.dumps(params), owner, now, now),
             )
 
     def update_job(self, job_id: str, *, status: str, progress: float, result=None, error=None) -> None:
@@ -194,7 +199,7 @@ class SQLiteStorage:
         if row is None:
             return None
         return {
-            "job_id": row["id"],
+                "job_id": row["id"], "owner": row["owner"],
             "kind": row["kind"],
             "status": row["status"],
             "progress": row["progress"],

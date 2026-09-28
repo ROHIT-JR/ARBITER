@@ -6,6 +6,7 @@ from starlette.requests import Request
 
 from arbiter.api.app import create_app
 from arbiter.api.security import Security
+from arbiter.storage import SQLiteStorage
 
 
 def _request(key: str | None = None, host: str = "127.0.0.1") -> Request:
@@ -51,3 +52,11 @@ def test_cors_configuration_is_opt_in(tmp_path, monkeypatch):
     app = create_app(tmp_path)
     middleware = next(item for item in app.user_middleware if item.cls.__name__ == "CORSMiddleware")
     assert middleware.kwargs["allow_origins"] == ["https://dashboard.example"]
+
+
+def test_job_owner_identity_rejects_another_key(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARBITER_API_KEYS", "one,two")
+    security = Security()
+    storage = SQLiteStorage(tmp_path / "arbiter.db")
+    storage.create_job("job", "compare", {}, security.identity(_request("one")))
+    assert storage.job("job")["owner"] != security.identity(_request("two"))

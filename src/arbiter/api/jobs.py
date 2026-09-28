@@ -11,9 +11,9 @@ class JobRunner:
         self.storage, self.run = storage, run
         self.pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="arbiter-job")
 
-    def submit(self, kind: str, params: dict) -> str:
+    def submit(self, kind: str, params: dict, owner: str = "anonymous:local") -> str:
         job_id = str(uuid4())
-        self.storage.create_job(job_id, kind, params)
+        self.storage.create_job(job_id, kind, params, owner)
         self.pool.submit(self._work, job_id, kind, params)
         return job_id
 

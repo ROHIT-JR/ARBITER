@@ -17,6 +17,7 @@ def test_job_result_persists_across_storage_reopen(tmp_path):
     assert done.wait(2)
     assert SQLiteStorage(tmp_path / "arbiter.db").job(job_id) == {
         "job_id": job_id,
+        "owner": "anonymous:local",
         "kind": "compare",
         "status": "done",
         "progress": 1,

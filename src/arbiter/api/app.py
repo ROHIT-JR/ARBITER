@@ -14,7 +14,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -216,14 +216,17 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
         jobs.pool.shutdown(wait=False, cancel_futures=True)
 
     @app.post("/jobs", status_code=status.HTTP_202_ACCEPTED)
-    def create_job(req: JobRequest, _=Depends(security.expensive)):  # noqa: B008
-        return {"job_id": jobs.submit(req.kind, req.params)}
+    def create_job(req: JobRequest, request: Request, _=Depends(security.expensive)):  # noqa: B008
+        return {"job_id": jobs.submit(req.kind, req.params, security.identity(request))}
 
     @app.get("/jobs/{job_id}")
-    def get_job(job_id: str):
+    def get_job(job_id: str, request: Request, _=Depends(security.expensive)):  # noqa: B008
         job = storage.job(job_id)
         if job is None:
             raise HTTPException(404, "unknown job id")
+        if job["owner"] != security.identity(request):
+            raise HTTPException(403, "job belongs to another API identity")
+        job.pop("owner")
         return job
 
     @app.post("/sessions/{session_id}/resubmit")

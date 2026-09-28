@@ -31,3 +31,7 @@ class Security:
                 retry = max(1, int(self.window - (now - calls[0])))
                 raise HTTPException(429, "rate limit exceeded", headers={"Retry-After": str(retry)})
             calls.append(now)
+
+    def identity(self, request: Request) -> str:
+        key = request.headers.get("X-API-Key")
+        return f"key:{key}" if key else f"anonymous:{request.client.host if request.client else 'local'}"
