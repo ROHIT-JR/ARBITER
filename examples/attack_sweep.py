@@ -33,22 +33,33 @@ def main() -> None:
         f"ARBITER attack sweep: {args.sessions} sessions x {args.rounds} rounds, "
         f"alpha={args.alpha}, visibility={config.params.visibility}, backend={args.backend}\n"
     )
+    sweep_rows = []
+    for theta in (1.0, 0.3, 0.1):
+        for h in Hypothesis:
+            transcripts = [
+                simulate_session(
+                    h, theta, config, seed=zlib.crc32(f"{h.value}|{theta}|{s}".encode()), backend=args.backend
+                )
+                for s in range(args.sessions)
+            ]
+            sweep_rows.append((theta, h, transcripts))
+
+    # Keep simulation, matrix-heavy threshold calibration and the sequential
+    # pass in separate batches. Alternating them makes small NumPy workloads
+    # contend with BLAS worker spin-up.
+    unified_rows = [[unified.evaluate(t) for t in transcripts] for _, _, transcripts in sweep_rows]
+    sequential_rows = [[sequential.evaluate(t) for t in transcripts] for _, _, transcripts in sweep_rows]
+
     for theta in (1.0, 0.3, 0.1):
         print(f"=== attack strength theta = {theta} (impersonation is always 1.0) ===")
         header = "true / attributed"
         print(f"{header:24s}" + "".join(f"{lab[:12]:>13s}" for lab in labels) + f"{'alarm@':>9s}{'attrib@':>9s}")
-        for h in Hypothesis:
-            got: Counter = Counter()
-            alarm, attrib = [], []
-            for s in range(args.sessions):
-                t = simulate_session(
-                    h, theta, config, seed=zlib.crc32(f"{h.value}|{theta}|{s}".encode()), backend=args.backend
-                )
-                got[unified.evaluate(t).attribution.value] += 1
-                q = sequential.evaluate(t)
-                if q.rejected:
-                    alarm.append(q.stopped_at)
-                    attrib.append(q.attributed_at)
+        for row_index, (row_theta, h, _) in enumerate(sweep_rows):
+            if row_theta != theta:
+                continue
+            got = Counter(v.attribution.value for v in unified_rows[row_index])
+            alarm = [q.stopped_at for q in sequential_rows[row_index] if q.rejected]
+            attrib = [q.attributed_at for q in sequential_rows[row_index] if q.rejected]
             row = "".join(f"{got[lab] / args.sessions:13.2f}" for lab in labels)
             med = lambda xs: f"{np.median(xs):9.0f}" if xs else f"{'-':>9s}"  # noqa: E731
             print(f"{h.value:24s}{row}{med(alarm)}{med(attrib)}")

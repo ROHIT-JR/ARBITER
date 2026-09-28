@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from qiskit_aer import AerSimulator
 
 from arbiter.qds_simulation import (
     ATTACKS,
@@ -9,6 +10,7 @@ from arbiter.qds_simulation import (
     SessionConfig,
     cell_probabilities,
     expected_chsh,
+    protocol,
     simulate_session,
 )
 from arbiter.qds_simulation.model import mismatch_probability, received_state
@@ -85,6 +87,21 @@ def test_same_seed_different_scenarios_get_distinct_nonces():
 
 def test_impersonation_is_all_or_nothing():
     assert simulate_session(Hypothesis.IMPERSONATION, 0.2, seed=1).theta == 1.0
+
+
+def test_qiskit_circuits_are_submitted_as_one_batch(monkeypatch):
+    class CountingAerSimulator(AerSimulator):
+        run_calls = 0
+
+        def run(self, circuits, *args, **kwargs):
+            type(self).run_calls += 1
+            assert isinstance(circuits, list)
+            assert len(circuits) > 1
+            return super().run(circuits, *args, **kwargs)
+
+    monkeypatch.setattr(protocol, "AerSimulator", CountingAerSimulator)
+    simulate_session(config=SessionConfig(n_rounds=100), seed=12, backend="qiskit")
+    assert CountingAerSimulator.run_calls == 1
 
 
 @pytest.mark.slow

@@ -24,6 +24,7 @@ model (see docs/threat-model.md).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 
 import numpy as np
 from scipy.special import logsumexp
@@ -90,11 +91,16 @@ class UnifiedDetector:
         self.alpha = alpha
         self.theta_grid = np.asarray(theta_grid, float)
         self.n_calibration = n_calibration
-        self._rng = np.random.default_rng(seed)
+        # Keep calibration reproducible without sharing mutable RNG state
+        # between cache entries. ``None`` still chooses fresh entropy for each
+        # detector instance, but an entry is fixed for the life of that
+        # instance once its count-vector key has been selected.
+        self._calibration_seed = tuple(int(x) for x in np.random.SeedSequence(seed).generate_state(4, dtype=np.uint32))
         self.p0 = cell_probabilities(Hypothesis.LEGITIMATE, 0.0, self.params)
         self.components, self.alt, self.groups = build_alternatives(self.params, self.theta_grid)
         self._logp0 = np.log(np.clip(np.stack([1 - self.p0, self.p0]), 1e-300, None))
         self._logalt = np.log(np.clip(np.stack([1 - self.alt, self.alt]), 1e-300, None))
+        self._threshold_cached = lru_cache(maxsize=1024)(self._calibrate_threshold)
 
     # log-likelihood kernels (binomial coefficients cancel in every ratio)
     def _ll0(self, n: np.ndarray, k: np.ndarray) -> np.ndarray:
@@ -106,12 +112,22 @@ class UnifiedDetector:
     def _glr(self, n: np.ndarray, k: np.ndarray) -> np.ndarray:
         return self._llalt(n, k).max(axis=-1) - self._ll0(n, k)
 
-    def threshold(self, n: np.ndarray) -> float:
-        """Level-alpha GLR threshold for per-cell round counts ``n``."""
-        n = np.asarray(n, np.int64)
-        k_sim = self._rng.binomial(n, self.p0, size=(self.n_calibration, len(n)))
+    def _draw_null_counts(self, n: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+        """Draw calibration counts under H0 (split out for instrumentation)."""
+        return rng.binomial(n, self.p0, size=(self.n_calibration, len(n)))
+
+    def _calibrate_threshold(self, n_key: tuple[int, ...]) -> float:
+        n = np.asarray(n_key, dtype=np.int64)
+        entry_seed = np.random.SeedSequence([*self._calibration_seed, *n_key])
+        rng = np.random.default_rng(entry_seed)
+        k_sim = self._draw_null_counts(n, rng)
         stats = self._glr(np.broadcast_to(n, k_sim.shape), k_sim)
         return float(np.quantile(stats, 1 - self.alpha))
+
+    def threshold(self, n: np.ndarray) -> float:
+        """Level-alpha GLR threshold for per-cell round counts ``n``."""
+        n_key = tuple(int(x) for x in np.asarray(n, dtype=np.int64))
+        return self._threshold_cached(n_key)
 
     def evaluate_counts(self, n: np.ndarray, k: np.ndarray) -> UnifiedVerdict:
         n = np.asarray(n, float)

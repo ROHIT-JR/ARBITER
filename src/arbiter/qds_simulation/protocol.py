@@ -17,6 +17,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 import numpy as np
+from qiskit import transpile
 from qiskit_aer import AerSimulator
 
 from arbiter.qds_simulation.circuits import ChshSpec, TeleportSpec, chsh_circuit, teleport_circuit
@@ -180,14 +181,31 @@ def _run_qiskit(h, rtypes, settings, labels, attacked, params, rng) -> np.ndarra
         spec = _round_spec(h, rtypes[i], settings[i], labels[i], attacked[i], params, rng)
         groups[spec].append(i)
 
-    sim = AerSimulator()
-    outcomes = np.zeros(len(rtypes), dtype=np.int8)
-    for spec, idx in groups.items():
+    specs = list(groups)
+    circuits = []
+    for spec in specs:
         if isinstance(spec, ChshSpec):
-            qc = chsh_circuit(spec)
+            circuits.append(chsh_circuit(spec))
         else:
-            qc = teleport_circuit(spec)
-        memory = sim.run(qc, shots=len(idx), memory=True, seed_simulator=int(rng.integers(2**31))).result().get_memory()
+            circuits.append(teleport_circuit(spec))
+
+    sim = AerSimulator()
+    circuits = transpile(circuits, sim, num_processes=1)
+    max_shots = max(len(idx) for idx in groups.values())
+    # Aer derives a different experiment seed for every circuit in a batched
+    # job. Supplying one fresh job seed therefore stays reproducible without
+    # repeating the same random stream across distinct circuits.
+    result = sim.run(
+        circuits,
+        shots=max_shots,
+        memory=True,
+        seed_simulator=int(rng.integers(2**31)),
+    ).result()
+
+    outcomes = np.zeros(len(rtypes), dtype=np.int8)
+    for circuit_index, spec in enumerate(specs):
+        idx = groups[spec]
+        memory = result.get_memory(circuit_index)[: len(idx)]
         for i, shot in zip(idx, memory, strict=True):
             regs = shot.split()  # registers appear in reverse order of qc.cregs
             if isinstance(spec, ChshSpec):
