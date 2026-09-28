@@ -82,6 +82,18 @@ def test_pki_endpoints(client):
     assert k["level"] == "low"
 
 
+def test_pki_assess_returns_chain_report_for_linked_bundle(client):
+    pytest.importorskip("cryptography")
+    from test_pki import _rsa_chain
+
+    _, _, leaf_pem, root_pem = _rsa_chain()
+    response = client.post("/pki/assess", json={"pem": (root_pem + leaf_pem).decode()})
+    assert response.status_code == 200
+    payload = response.json()
+    assert [link["subject"] for link in payload["chains"][0]["links"]] == ["CN=leaf", "CN=root"]
+    assert payload["chains"][0]["weakest_link"]["subject"] == "CN=root"
+
+
 def test_noise_preset_env(tmp_path, monkeypatch):
     monkeypatch.setenv("ARBITER_NOISE_PRESET", "conservative")
     c = TestClient(create_app(tmp_path))

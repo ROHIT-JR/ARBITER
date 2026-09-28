@@ -3,14 +3,17 @@
 `arbiter.pki_risk_scoring` answers a practical question that doesn't need quantum hardware: **which of our classical keys and certificates does a future quantum computer threaten, and how urgently?**
 
 ```python
-from arbiter.pki_risk_scoring import assess_certificates, assess_key
+from arbiter.pki_risk_scoring import assess_certificates, assess_chains, assess_key
 
 assess_key("RSA", 2048, expires=some_datetime).to_dict()
 for r in assess_certificates(open("bundle.pem", "rb").read()):
     print(r.subject, r.public_key.level, r.public_key.recommendation)
+
+for chain in assess_chains(open("bundle.pem", "rb").read()):
+    print(chain.weakest_link.subject, chain.level, chain.recommendation)
 ```
 
-It is also available over the API as `POST /pki/assess` (a PEM bundle) and `POST /pki/assess-key`. Certificate parsing needs `pip install -e ".[pki]"`.
+It is also available over the API as `POST /pki/assess` (a PEM bundle) and `POST /pki/assess-key`. A linked bundle returns `{"chains": [...]}`; a standalone certificate keeps the original list response. Certificate parsing needs `pip install -e ".[pki]"`.
 
 ## Model
 
@@ -44,8 +47,26 @@ Physical-qubit counts depend on the error-correction overhead and aren't reporte
 
 FIPS 203/204/205 and SP 800-208 algorithms score as low risk.
 
+## Chains and certificate signatures
+
+`assess_chains` orders a PEM bundle leaf → intermediate → root using issuer and
+subject names, preferring authority/subject key identifier matches when they
+are available.  Unrelated certificate trees are returned as separate chain
+reports.
+
+Each link contains its subject-key assessment and a signature assessment.  The
+latter uses the *issuer* certificate's key size for the Shor estimate, then
+adds a hash assessment. MD5 and SHA-1 are always critical. SHA-256 and stronger
+retain a substantial Grover pre-image margin, which is reported rather than
+mistaken for a Shor break.
+
+The chain score is the maximum link score. Its Mosca calculation uses the
+longest-lived certificate in the path, because a long-lived root can keep the
+whole chain exposed after a short-lived leaf has been replaced. If an issuer
+key dominates, the recommendation explicitly calls out that migrating only the
+leaf does not repair the trust path.
+
 ## Limitations
 
 - `crqc_year` is an assumption, not a prediction. Run the numbers under several values.
-- Only the subject public key is scored. The issuer's signature algorithm is reported but not yet scored separately.
 - Hybrid (composite) certificates are not yet recognized.
