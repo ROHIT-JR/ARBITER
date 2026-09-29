@@ -15,7 +15,6 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Optional
 
 from .scoring import RiskAssessment, assess_key
 
@@ -69,10 +68,10 @@ class KeyMetadata:
     source_description: str
     """Human-readable description of the key's location/purpose."""
 
-    created_date: Optional[datetime] = None
+    created_date: datetime | None = None
     """When the key was created (optional)."""
 
-    expiry_date: Optional[datetime] = None
+    expiry_date: datetime | None = None
     """When the key expires (optional, especially important for code-signing)."""
 
     protection_years_after_expiry: float = field(default=0.0)
@@ -117,7 +116,7 @@ class RegistryEntry:
 class KeyMetadataRegistry:
     """Registry for managing key metadata and computing risk assessments."""
 
-    def __init__(self, crqc_year: int = 2035, now: Optional[datetime] = None):
+    def __init__(self, crqc_year: int = 2035, now: datetime | None = None):
         """Initialize the registry.
 
         Args:
@@ -157,7 +156,7 @@ class KeyMetadataRegistry:
         )
         return assessment
 
-    def get_key(self, key_id: str) -> Optional[RegistryEntry]:
+    def get_key(self, key_id: str) -> RegistryEntry | None:
         """Retrieve a key's metadata and assessment.
 
         Args:
@@ -254,7 +253,7 @@ class KeyMetadataRegistry:
         if not json_path.exists():
             raise FileNotFoundError(f"JSON file not found: {json_file}")
 
-        with open(json_path, "r") as f:
+        with open(json_path) as f:
             data = json.load(f)
 
         if not isinstance(data, dict) or "keys" not in data:

@@ -8,18 +8,15 @@ Tests cover:
 5. Consensus on multi-party signatures.
 """
 
-import pytest
 import numpy as np
+import pytest
 
+from arbiter.qds_simulation.model import Hypothesis
 from arbiter.qds_simulation.multiparty import (
     MultiPartyParams,
     MultiPartySignature,
     PartyView,
-    simulate_repudiation_attack,
-    simulate_recipient_forgery,
 )
-from arbiter.qds_simulation.protocol import simulate_session, SessionConfig
-from arbiter.qds_simulation.model import Hypothesis
 
 
 class TestPartyView:
@@ -115,7 +112,6 @@ class TestHonestMultiPartySession:
 
     def test_honest_three_party_consensus(self):
         """Three honest parties all reach the same verdict."""
-        config = SessionConfig(n_rounds=600)
         params = MultiPartyParams(s_a=0.10, s_v=0.20)
 
         sig = MultiPartySignature(
@@ -126,8 +122,9 @@ class TestHonestMultiPartySession:
             protocol="qds",
         )
 
-        from arbiter.qds_simulation.protocol import Transcript
         import uuid
+
+        from arbiter.qds_simulation.protocol import Transcript
 
         # All three parties see honest transcripts (5% mismatch, below both thresholds)
         for party_id in range(3):
@@ -179,8 +176,9 @@ class TestMultiPartyProtocolCorrectness:
             params=MultiPartyParams(s_a=0.10, s_v=0.20),
         )
 
-        from arbiter.qds_simulation.protocol import Transcript
         import uuid
+
+        from arbiter.qds_simulation.protocol import Transcript
 
         # Create identical transcripts for all parties (same seed, honest)
         for party_id in range(4):
@@ -214,11 +212,11 @@ class TestMultiPartyProtocolCorrectness:
         """Test that shared outcomes are properly integrated."""
         outcomes = np.array([0] * 950 + [1] * 50)  # 5% mismatch
         view = PartyView(party_id=1, received_outcomes=outcomes)
-        
+
         # Simulate shared outcomes from another party
         shared = np.array([1] * 30 + [0] * 70)  # 30% mismatch in shared
         view.shared_from_others[2] = shared
-        
+
         # Verification should use both
         assert view.verifies(s_v=0.20), "Should verify with combined mismatches"
 
