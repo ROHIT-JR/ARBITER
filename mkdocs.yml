@@ -1,0 +1,71 @@
+site_name: ARBITER
+site_description: Unified attack attribution for teleportation-based Quantum Digital Signatures
+site_url: https://arbiter-qds.org
+repo_url: https://github.com/ROHIT-JR/ARBITER
+repo_name: ROHIT-JR/ARBITER
+
+theme:
+  name: material
+  favicon: assets/icon.png
+  logo: assets/logo.png
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.top
+    - toc.integrate
+    - content.code.copy
+    - content.code.annotate
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          import_statement: true
+          show_source: true
+          show_docstring_description: true
+  - jupyter:
+      ignore_h1_titles: true
+
+markdown_extensions:
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.highlight:
+      use_pygments: true
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - pymdownx.tasklist
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: pymdownx.emoji.twemoji
+      emoji_generator: pymdownx.emoji.to_svg
+  - tables
+  - toc:
+      permalink: true
+  - admonition
+
+extra_javascript:
+  - https://polyfill.io/v3/polyfill.min.js?features=es6
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Quick Start: quick-start.md
+  - Tutorials:
+      - Architecture: architecture.md
+      - Threat Model: threat-model.md
+      - Math Derivations: math-derivations.md
+      - PKI Risk Scoring: pki-risk-scoring.md
+      - Ion Trap Noise Model: ion-trap-noise-model.md
+  - API Reference: api-reference.md
+  - Contributing: contributing.md
+  - Demo Script: demo-script.md
+  - Explainer: explainer.md
+  - Changelog: changelog.md
+  - Citation: citation.md
