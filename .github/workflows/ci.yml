@@ -151,8 +151,9 @@ jobs:
           uvicorn --factory arbiter.api.app:create_app --port 8000 &
           sleep 3
       - name: Start frontend preview
-        run: npm run preview -- --port 4173 &
-        sleep 2
+        run: |
+          npm run preview -- --port 4173 &
+          sleep 2
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()
