@@ -301,3 +301,106 @@ def cell_probabilities(h: Hypothesis, theta: float, params: ChannelParams, proto
 def expected_chsh(h: Hypothesis, theta: float, params: ChannelParams, protocol: str = "prf") -> float:
     p = cell_probabilities(h, theta, params, protocol)[2:]
     return float(np.sum(1 - 2 * p))
+
+
+def _legit_cell_probabilities(v: float, protocol: str = "prf") -> np.ndarray:
+    """Per-cell outcome-1 probabilities under H0 (legitimate) for given visibility v.
+
+    Cells: 0=signature, 1=freshness, 2=chsh00, 3=chsh01, 4=chsh10, 5=chsh11
+    - signature, freshness: p = (1-v)/2
+    - CHSH (setting a,b with sign s): p = (1 - s*v/sqrt(2))/2
+    """
+    sqrt2 = np.sqrt(2)
+    p_sf = (1 - v) / 2
+    p_chsh = (1 - CHSH_SIGNS * v / sqrt2) / 2
+    return np.array([p_sf, p_sf, *p_chsh])
+
+
+def _neg_log_likelihood(v: float, n: np.ndarray, k: np.ndarray, protocol: str = "prf") -> float:
+    """Negative log-likelihood for visibility v given per-cell counts."""
+    p = _legit_cell_probabilities(v, protocol)
+    # Clip for numerical stability
+    p = np.clip(p, 1e-15, 1 - 1e-15)
+    return -np.sum(k * np.log(p) + (n - k) * np.log(1 - p))
+
+
+def estimate_visibility(n: np.ndarray, k: np.ndarray, params: ChannelParams | None = None, protocol: str = "prf") -> float:
+    """MLE of Werner visibility v from per-cell counts under H0 (legitimate).
+
+    Maximizes the joint log-likelihood over all 6 cells:
+    ℓ(v) = Σᵢ [kᵢ log pᵢ(v) + (nᵢ - kᵢ) log(1 - pᵢ(v))]
+
+    where p₀(v) = p₁(v) = (1-v)/2 (signature, freshness)
+    and pᵢ(v) = (1 - sᵢ v/√2)/2 for CHSH cells (i=2,3,4,5).
+
+    Returns v in [0.5, 1.0] clipped. Falls back to params.visibility if optimization fails.
+    """
+    if params is None:
+        params = ChannelParams()
+
+    n = np.asarray(n, float)
+    k = np.asarray(k, float)
+
+    if n.sum() == 0:
+        return params.visibility
+
+    # Initial guess from method of moments
+    n_sf = n[0] + n[1]
+    if n_sf > 0:
+        p_sf = (k[0] + k[1]) / n_sf
+        v0 = 1 - 2 * p_sf
+    else:
+        v0 = params.visibility
+    v0 = float(np.clip(v0, 0.5, 1.0))
+
+    # Brent's method for robust 1D optimization
+    try:
+        from scipy.optimize import minimize_scalar
+
+        res = minimize_scalar(
+            _neg_log_likelihood,
+            bounds=(0.5, 1.0),
+            args=(n, k, protocol),
+            method="bounded",
+            options={"xatol": 1e-8, "maxiter": 50},
+        )
+        if res.success:
+            return float(np.clip(res.x, 0.5, 1.0))
+    except Exception:
+        pass
+
+    # Fallback: Newton step from v0
+    for _ in range(10):
+        p = _legit_cell_probabilities(v0, protocol)
+        p = np.clip(p, 1e-15, 1 - 1e-15)
+        score = np.sum((k / p - (n - k) / (1 - p)) * np.gradient(p, 1e-6))
+        fisher = np.sum(n / (p * (1 - p)) * (np.gradient(p, 1e-6)) ** 2)
+        if fisher > 0:
+            v_new = v0 + score / fisher
+            if abs(v_new - v0) < 1e-8:
+                v0 = v_new
+                break
+            v0 = np.clip(v_new, 0.5, 1.0)
+
+    return float(np.clip(v0, 0.5, 1.0))
+
+
+def visibility_ci(n: np.ndarray, k: np.ndarray, confidence: float = 0.95, protocol: str = "prf") -> tuple[float, float]:
+    """Profile likelihood confidence interval for visibility v.
+
+    Returns (v_lower, v_upper) such that 2(ℓ(v̂) - ℓ(v)) < χ²₁,₁₋α
+    """
+    from scipy.stats import chi2
+
+    v_hat = estimate_visibility(n, k, protocol=protocol)
+    ll_max = -_neg_log_likelihood(v_hat, n, k, protocol)
+    threshold = ll_max - 0.5 * chi2.ppf(confidence, 1)
+
+    # Search for interval bounds
+    v_grid = np.linspace(0.5, 1.0, 1000)
+    ll_grid = -np.array([_neg_log_likelihood(v, n, k, protocol) for v in v_grid])
+    valid = v_grid[ll_grid >= threshold]
+
+    if len(valid) == 0:
+        return (0.5, 1.0)
+    return (float(valid[0]), float(valid[-1]))
