@@ -152,6 +152,50 @@ def test_demo_ledger_tampering_is_disabled_by_default(client):
     assert client.post("/ledger/restore").status_code == 403
 
 
+def test_encrypted_ledger_rotation_survives_app_restart(tmp_path, monkeypatch):
+    from arbiter.audit_ledger import LedgerKeys
+
+    real_generate = LedgerKeys.generate
+    monkeypatch.setattr(
+        LedgerKeys,
+        "generate",
+        classmethod(lambda cls, hbs_height=10, epoch_id=0: real_generate(hbs_height=2, epoch_id=epoch_id)),
+    )
+    monkeypatch.setenv("ARBITER_KEY_PASSPHRASE", "test-only-passphrase")
+
+    def endpoint(app, path):
+        return next(route.endpoint for route in app.routes if getattr(route, "path", None) == path)
+
+    first = create_app(tmp_path)
+    assert endpoint(first, "/ledger/rotate")()["epoch"] == 1
+    assert endpoint(first, "/ledger/verify")()["ok"] is True
+
+    reopened = create_app(tmp_path)
+    assert endpoint(reopened, "/ledger/verify")()["ok"] is True
+    assert endpoint(reopened, "/ledger/rotate")()["epoch"] == 2
+    assert endpoint(reopened, "/ledger/verify")()["ok"] is True
+
+
+def test_rotation_recovers_pending_key_after_interrupted_replacement(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARBITER_KEY_PASSPHRASE", "test-only-passphrase")
+
+    def endpoint(app, path):
+        return next(route.endpoint for route in app.routes if getattr(route, "path", None) == path)
+
+    app = create_app(tmp_path)
+    active = tmp_path / "ledger_keys.json"
+    pending = tmp_path / "ledger_keys.json.next"
+    old_key_file = active.read_bytes()
+    assert endpoint(app, "/ledger/rotate")()["epoch"] == 1
+    pending.write_bytes(active.read_bytes())
+    active.write_bytes(old_key_file)
+
+    recovered = create_app(tmp_path)
+    assert endpoint(recovered, "/ledger/verify")()["ok"] is True
+    assert active.read_bytes() != old_key_file
+    assert not pending.exists()
+
+
 def test_demo_tamper_behaviors_are_memory_only_and_signature_checked(tmp_path, monkeypatch):
     monkeypatch.setenv("ARBITER_DEMO_MODE", "1")
     c = TestClient(create_app(tmp_path))

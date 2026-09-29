@@ -134,6 +134,7 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
             raise ValueError(f"unknown ARBITER_NOISE_PRESET {preset!r}; choose from {sorted(PRESETS)}")
         params = PRESETS[preset].channel_params()
     key_path = data_dir / "ledger_keys.json"
+    pending_key_path = key_path.with_name(key_path.name + ".next")
     passphrase = os.environ.get("ARBITER_KEY_PASSPHRASE")
     # Tests are isolated temporary data directories; production requires an
     # explicit development override rather than silently writing a secret.
@@ -152,12 +153,32 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
             keys.save(key_path)
         else:
             raise ValueError("ARBITER_KEY_PASSPHRASE is required to create production ledger keys")
-    ledger = AuditLedger(
-        keys,
-        data_dir / "ledger.jsonl",
-        EpochManager(keys.hbs.height),
-        require_passphrase=not allow_plaintext,
-    )
+
+    def open_ledger(active_keys: LedgerKeys) -> AuditLedger:
+        return AuditLedger(
+            active_keys,
+            data_dir / "ledger.jsonl",
+            EpochManager(active_keys.hbs.height),
+            require_passphrase=not allow_plaintext,
+            key_store_path=key_path,
+            key_passphrase=passphrase,
+        )
+
+    try:
+        ledger = open_ledger(keys)
+    except ValueError:
+        # A crash after writing the transition but before replacing the key
+        # file leaves the incoming keypair in the pending file. The ledger's
+        # verified transition determines whether that keypair is active.
+        if not pending_key_path.exists():
+            raise
+        pending_keys = (
+            LedgerKeys.load_encrypted(pending_key_path, passphrase)
+            if passphrase
+            else LedgerKeys.load(pending_key_path, allow_plaintext=allow_plaintext)
+        )
+        ledger = open_ledger(pending_keys)
+        pending_key_path.replace(key_path)
     storage = SQLiteStorage(data_dir / "arbiter.db")
     arbiter = Arbiter(params, ledger=ledger, nonces=storage.nonce_registry())
     arbiters = {

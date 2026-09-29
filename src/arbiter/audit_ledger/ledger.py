@@ -108,6 +108,8 @@ class AuditLedger:
         epoch_manager: EpochManager | None = None,
         *,
         require_passphrase: bool = False,
+        key_store_path: Path | None = None,
+        key_passphrase: str | None = None,
     ):
         self.keys = keys
         self.path = path
@@ -116,12 +118,30 @@ class AuditLedger:
         # can choose a lower threshold for tests or operational policy.
         self.epoch_manager = epoch_manager or EpochManager(keys.hbs.height)
         self.require_passphrase = require_passphrase
+        self.key_store_path = key_store_path
+        self.key_passphrase = key_passphrase
         if path is not None and path.exists():
             self.entries = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+            report = verify_entries(self.entries)
+            if not report.ok:
+                raise ValueError(f"ledger at {path} failed verification: {report.problems[0]}")
             g = self.entries[0]["payload"]
+            transitions = [
+                i for i, entry in enumerate(self.entries) if entry["payload"].get("type") == "key_transition"
+            ]
+            if transitions:
+                active = self.entries[transitions[-1]]["payload"]
+                expected_pk, expected_root = active["new_mldsa_pk"], active["new_hbs_root"]
+                leaf_start, initial_leaf = transitions[-1] + 1, 1
+            else:
+                expected_pk, expected_root = g["mldsa_pk"], g["hbs_root"]
+                leaf_start, initial_leaf = 1, 0
             pk = base64.b64encode(keys.mldsa.public_key).decode()
-            if g["mldsa_pk"] != pk or g["hbs_root"] != keys.hbs.root.hex():
+            if expected_pk != pk or expected_root != keys.hbs.root.hex():
                 raise ValueError(f"ledger at {path} was created with different keys")
+            keys.hbs_leaf = initial_leaf + sum(
+                entry["signatures"]["hbs"] is not None for entry in self.entries[leaf_start:]
+            )
         if not self.entries:
             genesis_payload = {
                 "type": "genesis",
@@ -172,6 +192,15 @@ class AuditLedger:
         old_keys = self.keys
         global_index = len(self.entries) - 1
         new_epoch_keys = LedgerKeys.generate(old_keys.hbs.height, old_keys.epoch_id + 1)
+        pending_path = None
+        if self.key_store_path is not None:
+            pending_path = self.key_store_path.with_name(self.key_store_path.name + ".next")
+            if self.key_passphrase:
+                new_epoch_keys.save_encrypted(pending_path, self.key_passphrase)
+            elif not self.require_passphrase:
+                new_epoch_keys.save(pending_path)
+            else:
+                raise ValueError("a passphrase is required to persist rotated ledger keys")
         transition_payload = {
             "type": "key_transition",
             "prev_epoch": old_keys.epoch_id,
@@ -193,6 +222,8 @@ class AuditLedger:
         transition_payload["cross_signature"] = transition_payload["new_key_signature"]
         self._append_raw(transition_payload, sign=True)
         self.keys = LedgerKeys(new_epoch_keys.mldsa, new_epoch_keys.hbs, new_epoch_keys.epoch_id, hbs_leaf=1)
+        if pending_path is not None:
+            pending_path.replace(self.key_store_path)
         previous = self.epoch_manager.current_epoch
         if self.epoch_manager.epochs:
             self.epoch_manager.epochs[-1].end_index = global_index + 1

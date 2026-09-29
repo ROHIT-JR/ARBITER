@@ -205,6 +205,32 @@ def test_small_hbs_capacity_rotates_without_exhaustion():
     assert ledger.verify().ok
 
 
+def test_encrypted_rotated_keys_reopen_without_reusing_a_leaf(tmp_path):
+    key_path = tmp_path / "ledger_keys.json"
+    ledger_path = tmp_path / "ledger.jsonl"
+    keys = LedgerKeys.generate(hbs_height=2)
+    keys.save_encrypted(key_path, "passphrase")
+    ledger = AuditLedger(
+        keys, ledger_path, key_store_path=key_path, key_passphrase="passphrase", require_passphrase=True
+    )
+    for i in range(5):
+        ledger.append({"type": "verdict", "i": i})
+    assert ledger.keys.epoch_id >= 1
+    assert ledger.verify().ok
+
+    reopened = AuditLedger(
+        LedgerKeys.load_encrypted(key_path, "passphrase"),
+        ledger_path,
+        key_store_path=key_path,
+        key_passphrase="passphrase",
+        require_passphrase=True,
+    )
+    leaf_before = reopened.keys.hbs_leaf
+    reopened.append({"type": "verdict", "i": 6})
+    assert reopened.verify().ok
+    assert reopened.keys.hbs_leaf > leaf_before or reopened.keys.epoch_id > ledger.keys.epoch_id
+
+
 def test_epoch_cross_signature_verification():
     """Test that cross-signatures can be verified."""
     mgr = EpochManager(hbs_height=4)
