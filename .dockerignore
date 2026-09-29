@@ -1,0 +1,59 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation & examples
+*.md
+docs/
+examples/
+CHANGELOG.md
+README.md
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+SECURITY.md
+CITATION.cff
+
+# Testing
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Build artifacts
+build/
+dist/
+*.pyc
+__pycache__/
+.eggs/
+
+# Development
+.venv/
+venv/
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Node (but keep frontend/dist)
+frontend/node_modules/
+frontend/.vite/
+
+# Project files
+.claude/
+.arbiter/
+graphify-out/
+CODEBASE/
+ISSUE_LEDGER.md
+
+# OS
+.DS_Store
+.dockerignore
+Dockerfile
+docker-compose.yml
