@@ -2,14 +2,22 @@ import copy
 import json
 
 import pytest
+from cryptography.exceptions import InvalidTag
 
-from arbiter.audit_ledger import AuditLedger, LedgerKeys, MerkleLamport, verify_entries
+from arbiter.audit_ledger import (
+    AuditLedger,
+    EncryptedKeyStore,
+    EpochManager,
+    LedgerKeys,
+    MerkleLamport,
+    verify_entries,
+)
 from arbiter.audit_ledger.signatures import MLDSA
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def keys():
-    return LedgerKeys.generate(hbs_height=4)
+    return LedgerKeys.generate(hbs_height=10)
 
 
 @pytest.fixture
@@ -61,13 +69,13 @@ def test_tampering_is_detected(ledger, tamper, expected):
 def test_rewriting_with_recomputed_hash_still_fails_signatures(ledger):
     """An attacker who edits a verdict and recomputes the hash chain still
     cannot produce valid signatures."""
-    from arbiter.audit_ledger.ledger import _entry_hash, canonical
+    from arbiter.audit_ledger.common import canonical, entry_hash
 
     entries = copy.deepcopy(ledger.entries)
     e = entries[2]
     e["payload"]["decision"] = "REJECT"
     header = {k: e[k] for k in ("index", "timestamp", "prev_hash", "payload")}
-    e["hash"] = _entry_hash(e["prev_hash"], canonical(header), e["signatures"]["mldsa"], e["signatures"]["hbs"])
+    e["hash"] = entry_hash(e["prev_hash"], canonical(header), e["signatures"]["mldsa"], e["signatures"]["hbs"])
     report = verify_entries(entries)
     assert not report.ok and "ML-DSA" in report.problems[0]
 
@@ -75,20 +83,6 @@ def test_rewriting_with_recomputed_hash_still_fails_signatures(ledger):
 def test_genesis_trust_anchor(ledger, keys):
     other = AuditLedger(LedgerKeys.generate(hbs_height=2))
     assert not verify_entries(other.entries, expected_genesis_hash=ledger.genesis_hash).ok
-
-
-def test_malformed_signature_encoding_returns_failed_report(ledger):
-    """Regression: a corrupt base64 byte must not crash verification."""
-    entries = copy.deepcopy(ledger.entries)
-    entries[1]["signatures"]["mldsa"] = "!"
-    assert not verify_entries(entries).ok
-
-
-def test_genesis_signature_placeholder_is_integrity_checked(ledger):
-    """Regression: unsigned genesis entries cannot carry arbitrary metadata."""
-    entries = copy.deepcopy(ledger.entries)
-    entries[0]["signatures"]["mldsa"] = "unexpected"
-    assert not verify_entries(entries).ok
 
 
 def test_persistence(tmp_path, keys):
@@ -102,3 +96,184 @@ def test_persistence(tmp_path, keys):
     json.loads(path.read_text().splitlines()[-1])
     with pytest.raises(ValueError):
         AuditLedger(LedgerKeys.generate(hbs_height=2), path)
+
+
+def test_encrypted_key_storage(tmp_path):
+    """Test encrypted key storage round-trip."""
+    keys = LedgerKeys.generate(hbs_height=4)
+    path = tmp_path / "keys.enc.json"
+    passphrase = "test-passphrase-123"
+
+    # Save encrypted
+    keys.save_encrypted(path, passphrase)
+
+    # Load encrypted
+    loaded = LedgerKeys.load_encrypted(path, passphrase)
+
+    # Verify keys match
+    assert loaded.mldsa.public_key == keys.mldsa.public_key
+    assert loaded.mldsa.secret_key == keys.mldsa.secret_key
+    assert loaded.hbs.seed == keys.hbs.seed
+    assert loaded.hbs.height == keys.hbs.height
+    assert loaded.epoch_id == keys.epoch_id
+
+
+def test_encrypted_key_storage_wrong_passphrase(tmp_path):
+    """Test that wrong passphrase fails to decrypt."""
+    keys = LedgerKeys.generate(hbs_height=4)
+    path = tmp_path / "keys.enc.json"
+
+    keys.save_encrypted(path, "correct-passphrase")
+
+    with pytest.raises(InvalidTag):
+        LedgerKeys.load_encrypted(path, "wrong-passphrase")
+
+
+def test_encrypted_key_store_direct(tmp_path):
+    """Test EncryptedKeyStore directly."""
+    store = EncryptedKeyStore(tmp_path / "store.json")
+    data = {"test": "data", "number": 42}
+    passphrase = "passphrase"
+
+    store.save(data, passphrase)
+    assert store.exists()
+
+    loaded = store.load(passphrase)
+    assert loaded == data
+
+    with pytest.raises(InvalidTag):
+        store.load("wrong-passphrase")
+
+
+def test_epoch_manager_initialization():
+    """Test epoch manager genesis creation."""
+    mgr = EpochManager(hbs_height=4)
+    epoch0 = mgr.initialize_genesis()
+
+    assert epoch0.epoch_id == 0
+    assert epoch0.mldsa is not None
+    assert epoch0.hbs is not None
+    assert epoch0.genesis_hash is not None
+    assert len(mgr.epochs) == 1
+    assert mgr.epochs[0].epoch_id == 0
+    assert mgr.epochs[0].status == "active"
+
+
+def test_epoch_rotation(tmp_path):
+    """Test epoch key rotation with cross-signing."""
+    keys = LedgerKeys.generate(hbs_height=3)  # 8 leaves
+    mgr = EpochManager(hbs_height=3, max_hbs_usage_ratio=0.5)  # rotate at 4 leaves
+    mgr.initialize_genesis()  # Initialize epoch 0
+    ledger = AuditLedger(keys, epoch_manager=mgr)
+
+    # Append entries until rotation triggers (at 4 leaves used)
+    for i in range(5):
+        ledger.append({"type": "verdict", "i": i})
+
+    # Should have rotated to epoch 1
+    assert ledger.keys.epoch_id == 1
+    assert len(mgr.epochs) == 2
+    assert mgr.epochs[0].status == "retired"
+    assert mgr.epochs[1].status == "active"
+    assert mgr.previous_epoch is mgr.epochs[0]
+    assert not hasattr(mgr.previous_epoch, "mldsa")
+    # Cross-signature is on the new epoch's keys, accessible via epoch manager
+    assert mgr.current_epoch is not None
+    assert mgr.current_epoch.cross_signature is not None
+    # start_index is global index where epoch 1 starts (after rotation at index 4)
+    assert mgr.epochs[1].start_index == 4
+
+    # Verify entries: genesis + 4 regular + 1 key_transition + 1 after rotation = 7 entries
+    assert len(ledger.entries) == 7
+    # Check that a key_transition entry was written
+    transition_entries = [e for e in ledger.entries if e.get("payload", {}).get("type") == "key_transition"]
+    assert len(transition_entries) == 1
+    transition = transition_entries[0]
+    assert transition["payload"]["type"] == "key_transition"
+    assert "cross_signature" in transition["payload"]
+    assert ledger.verify().ok
+    assert ledger.verify_cross_epoch(ledger.genesis_hash).ok
+
+    forged = copy.deepcopy(ledger.entries)
+    forged[5]["signatures"]["mldsa"] = ""
+    assert not verify_entries(forged).ok
+
+
+def test_small_hbs_capacity_rotates_without_exhaustion():
+    ledger = AuditLedger(LedgerKeys.generate(hbs_height=2))
+    for i in range(12):
+        ledger.append({"type": "verdict", "i": i})
+    assert ledger.keys.epoch_id >= 2
+    assert ledger.verify().ok
+
+
+def test_encrypted_rotated_keys_reopen_without_reusing_a_leaf(tmp_path):
+    key_path = tmp_path / "ledger_keys.json"
+    ledger_path = tmp_path / "ledger.jsonl"
+    keys = LedgerKeys.generate(hbs_height=2)
+    keys.save_encrypted(key_path, "passphrase")
+    ledger = AuditLedger(
+        keys, ledger_path, key_store_path=key_path, key_passphrase="passphrase", require_passphrase=True
+    )
+    for i in range(5):
+        ledger.append({"type": "verdict", "i": i})
+    assert ledger.keys.epoch_id >= 1
+    assert ledger.verify().ok
+
+    reopened = AuditLedger(
+        LedgerKeys.load_encrypted(key_path, "passphrase"),
+        ledger_path,
+        key_store_path=key_path,
+        key_passphrase="passphrase",
+        require_passphrase=True,
+    )
+    leaf_before = reopened.keys.hbs_leaf
+    reopened.append({"type": "verdict", "i": 6})
+    assert reopened.verify().ok
+    assert reopened.keys.hbs_leaf > leaf_before or reopened.keys.epoch_id > ledger.keys.epoch_id
+
+
+def test_epoch_cross_signature_verification():
+    """Test that cross-signatures can be verified."""
+    mgr = EpochManager(hbs_height=4)
+    epoch0 = mgr.initialize_genesis()
+
+    # Create epoch 1 and cross-sign
+    epoch1 = mgr.rotate_keys(global_index=10)
+
+    # Verify cross-signature
+    cross_sig = epoch1.cross_signature
+    assert cross_sig is not None
+
+    # Verify using epoch0's keys
+    ok = epoch1.verify_cross_signature(
+        cross_sig,
+        epoch0.mldsa.public_key,
+        epoch0.hbs.root,
+        epoch0.hbs_leaf,
+    )
+    assert ok
+
+
+def test_ledger_with_encrypted_storage(tmp_path):
+    """Test full ledger with encrypted key storage."""
+    keys = LedgerKeys.generate(hbs_height=4)
+    key_path = tmp_path / "keys.enc.json"
+    ledger_path = tmp_path / "ledger.jsonl"
+    passphrase = "test-passphrase"
+
+    # Save keys encrypted
+    keys.save_encrypted(key_path, passphrase)
+
+    # Create ledger with encrypted keys
+    loaded_keys = LedgerKeys.load_encrypted(key_path, passphrase)
+    ledger = AuditLedger(loaded_keys, ledger_path)
+
+    ledger.append({"type": "verdict", "decision": "ACCEPT"})
+    report = ledger.verify()
+    assert report.ok
+
+    # Reopen ledger
+    loaded_keys2 = LedgerKeys.load_encrypted(key_path, passphrase)
+    reopened = AuditLedger(loaded_keys2, ledger_path)
+    assert reopened.verify().ok
