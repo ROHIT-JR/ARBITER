@@ -35,7 +35,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install mkdocs mkdocs-material mkdocstrings[python] mkdocs-jupyter
+          pip install mkdocs mkdocs-material mkdocstrings[python] mkdocs-jupyter pymdown-extensions
 
       - name: Build docs
         run: mkdocs build
