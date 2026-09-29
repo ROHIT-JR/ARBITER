@@ -44,6 +44,144 @@ PQC_ALGORITHMS = {
     "LMS",
 }
 
+# Composite ML-DSA prototype OIDs from draft-ietf-lamps-pq-composite-sigs-07,
+# Table 1.  These are draft-specific and must not be mistaken for final IANA OIDs.
+COMPOSITE_OID_DRAFT = "draft-ietf-lamps-pq-composite-sigs-07"
+COMPOSITE_OID_MAP = {
+    "2.16.840.1.114027.80.9.1.0": ("ML-DSA-44", "RSA-2048-PSS", "SHA256"),
+    "2.16.840.1.114027.80.9.1.1": ("ML-DSA-44", "RSA-2048-PKCS15", "SHA256"),
+    "2.16.840.1.114027.80.9.1.2": ("ML-DSA-44", "Ed25519", "SHA512"),
+    "2.16.840.1.114027.80.9.1.3": ("ML-DSA-44", "ECDSA-P256", "SHA256"),
+    "2.16.840.1.114027.80.9.1.4": ("ML-DSA-65", "RSA-3072-PSS", "SHA512"),
+    "2.16.840.1.114027.80.9.1.5": ("ML-DSA-65", "RSA-3072-PKCS15", "SHA512"),
+    "2.16.840.1.114027.80.9.1.6": ("ML-DSA-65", "RSA-4096-PSS", "SHA512"),
+    "2.16.840.1.114027.80.9.1.7": ("ML-DSA-65", "RSA-4096-PKCS15", "SHA512"),
+    "2.16.840.1.114027.80.9.1.8": ("ML-DSA-65", "ECDSA-P256", "SHA512"),
+    "2.16.840.1.114027.80.9.1.9": ("ML-DSA-65", "ECDSA-P384", "SHA512"),
+    "2.16.840.1.114027.80.9.1.10": ("ML-DSA-65", "ECDSA-brainpoolP256r1", "SHA512"),
+    "2.16.840.1.114027.80.9.1.11": ("ML-DSA-65", "Ed25519", "SHA512"),
+    "2.16.840.1.114027.80.9.1.12": ("ML-DSA-87", "ECDSA-P384", "SHA512"),
+    "2.16.840.1.114027.80.9.1.13": ("ML-DSA-87", "ECDSA-brainpoolP384r1", "SHA512"),
+    "2.16.840.1.114027.80.9.1.14": ("ML-DSA-87", "Ed448", "SHAKE256"),
+    "2.16.840.1.114027.80.9.1.15": ("ML-DSA-87", "RSA-3072-PSS", "SHA512"),
+    "2.16.840.1.114027.80.9.1.16": ("ML-DSA-87", "RSA-4096-PSS", "SHA512"),
+    "2.16.840.1.114027.80.9.1.17": ("ML-DSA-87", "ECDSA-P521", "SHA512"),
+}
+
+# Pure ML-DSA OIDs from RFC 9881
+PURE_MLDSA_OIDS = {
+    "2.16.840.1.101.3.4.3.17": "ML-DSA-44",
+    "2.16.840.1.101.3.4.3.18": "ML-DSA-65",
+    "2.16.840.1.101.3.4.3.19": "ML-DSA-87",
+}
+
+# Pure SLH-DSA public-key/signature OIDs, RFC 9909 section 2.
+_SLH_PARAMETERS = (
+    "SHA2-128s",
+    "SHA2-128f",
+    "SHA2-192s",
+    "SHA2-192f",
+    "SHA2-256s",
+    "SHA2-256f",
+    "SHAKE-128s",
+    "SHAKE-128f",
+    "SHAKE-192s",
+    "SHAKE-192f",
+    "SHAKE-256s",
+    "SHAKE-256f",
+)
+PURE_SLHDSA_OIDS = {
+    f"2.16.840.1.101.3.4.3.{number}": f"SLH-DSA-{name}" for number, name in enumerate(_SLH_PARAMETERS, start=20)
+}
+
+
+def parse_composite_oid(oid_dotted: str) -> tuple[str, str, str] | None:
+    """Parse a composite algorithm OID and return (pqc_alg, trad_alg, hash_alg).
+
+    Returns None if the OID is not a recognised composite ML-DSA OID.
+    """
+    return COMPOSITE_OID_MAP.get(oid_dotted)
+
+
+def is_composite_oid(oid_dotted: str) -> bool:
+    """Check if an OID is a recognised composite ML-DSA OID."""
+    return oid_dotted in COMPOSITE_OID_MAP
+
+
+def is_pure_mldsa_oid(oid_dotted: str) -> str | None:
+    """Check if an OID is a pure ML-DSA OID (RFC 9881). Returns algorithm name or None."""
+    return PURE_MLDSA_OIDS.get(oid_dotted)
+
+
+def assess_composite_key(
+    pqc_algorithm: str,
+    traditional_algorithm: str,
+    *,
+    pqc_key_bits: int | None = None,
+    trad_key_bits: int | None = None,
+    expires: datetime | None = None,
+    protection_years_after_expiry: float = 0.0,
+    crqc_year: int = DEFAULT_CRQC_YEAR,
+    now: datetime | None = None,
+) -> RiskAssessment:
+    """Assess both components; either surviving component protects the hybrid."""
+    now = now or datetime.now(timezone.utc)
+
+    trad_assessment_alg = traditional_algorithm
+    if traditional_algorithm.startswith("RSA-"):
+        trad_assessment_alg = "RSA"
+        if trad_key_bits is None:
+            trad_key_bits = int(traditional_algorithm.split("-")[1])
+    elif traditional_algorithm.startswith("ECDSA-"):
+        trad_assessment_alg = "ECDSA"
+        if trad_key_bits is None:
+            suffix = traditional_algorithm.split("-", 1)[1]
+            trad_key_bits = int(suffix[1:]) if suffix.startswith("P") else curve_bits(suffix)
+
+    pqc_assessment = assess_key(
+        pqc_algorithm,
+        pqc_key_bits,
+        expires=expires,
+        protection_years_after_expiry=protection_years_after_expiry,
+        crqc_year=crqc_year,
+        now=now,
+    )
+    trad_assessment = assess_key(
+        trad_assessment_alg,
+        trad_key_bits,
+        expires=expires,
+        protection_years_after_expiry=protection_years_after_expiry,
+        crqc_year=crqc_year,
+        now=now,
+    )
+
+    # The lower risk component can retain security after the other fails.
+    if pqc_assessment.score <= trad_assessment.score:
+        weaker = pqc_assessment
+    else:
+        weaker = trad_assessment
+
+    return RiskAssessment(
+        algorithm=f"{pqc_algorithm}+{traditional_algorithm} (hybrid)",
+        key_bits=None,
+        family="hybrid",
+        classical_security_bits=None,
+        quantum_security_bits=None,
+        shor_logical_qubits=None,
+        expires=expires.isoformat() if expires else None,
+        years_protection_needed=weaker.years_protection_needed,
+        crqc_year=crqc_year,
+        mosca_violated=weaker.mosca_violated,
+        score=weaker.score,
+        level=weaker.level,
+        recommendation=(
+            f"Hybrid certificate with {pqc_algorithm} (PQC) and {traditional_algorithm} (traditional). "
+            f"The stronger surviving component ({weaker.algorithm}) governs overall risk; "
+            f"the classical component has quantum exposure: {trad_assessment.recommendation}"
+        ),
+    )
+
+
 # Classical security (bits) of RSA moduli, NIST SP 800-57 Part 1.
 _RSA_CLASSICAL = [(1024, 80), (2048, 112), (3072, 128), (7680, 192), (15360, 256)]
 
@@ -115,17 +253,6 @@ def curve_bits(curve: str) -> int | None:
     return _CURVE_BITS.get(curve.lower())
 
 
-def _positive_key_bits(value: int | None, default: int) -> int:
-    """Return a usable key size for a public-input risk assessment.
-
-    Scanner metadata is not always trustworthy; non-positive values should
-    not make an assessment endpoint raise while calculating ``log2(n)``.
-    """
-    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
-        return value
-    return default
-
-
 def assess_key(
     algorithm: str,
     key_bits: int | None = None,
@@ -168,16 +295,16 @@ def assess_key(
 
     if alg in ("RSA", "RSA-PSS", "RSAES-OAEP"):
         family = "rsa"
-        n = _positive_key_bits(key_bits, 2048)
+        n = key_bits or 2048
         classical = _rsa_classical_bits(n)
         qubits = 2 * n + 3
     elif alg in ("EC", "ECDSA", "ECDH", "ED25519", "ED448", "X25519", "X448", "EDDSA", "DSA", "DH"):
         family = "ffdlp" if alg in ("DSA", "DH") else "ecc"  # finite-field DLP scales like RSA under Shor
         if alg in ("ED25519", "X25519"):
-            key_bits = _positive_key_bits(key_bits, 255)
+            key_bits = key_bits or 255
         if alg in ("ED448", "X448"):
-            key_bits = _positive_key_bits(key_bits, 448)
-        n = _positive_key_bits(key_bits, 256)
+            key_bits = key_bits or 448
+        n = key_bits if key_bits is not None and key_bits > 0 else 256
         if family == "ecc":
             classical = n // 2
             qubits = 9 * n + 2 * math.ceil(math.log2(n)) + 10
