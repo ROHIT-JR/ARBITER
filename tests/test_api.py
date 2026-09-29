@@ -167,6 +167,8 @@ def test_encrypted_ledger_rotation_survives_app_restart(tmp_path, monkeypatch):
         return next(route.endpoint for route in app.routes if getattr(route, "path", None) == path)
 
     first = create_app(tmp_path)
+    rotation_route = next(route for route in first.routes if getattr(route, "path", None) == "/ledger/rotate")
+    assert any(dependency.call.__name__ == "expensive" for dependency in rotation_route.dependant.dependencies)
     assert endpoint(first, "/ledger/rotate")()["epoch"] == 1
     assert endpoint(first, "/ledger/verify")()["ok"] is True
 

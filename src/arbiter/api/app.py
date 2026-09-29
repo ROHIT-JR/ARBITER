@@ -346,7 +346,7 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
         return ledger.entries[index]
 
     @app.post("/ledger/rotate")
-    def ledger_rotate():
+    def ledger_rotate(_=Depends(security.expensive)):  # noqa: B008
         """Rotate before HBS exhaustion; transition remains audit-verifiable."""
         with ledger_lock:
             try:
