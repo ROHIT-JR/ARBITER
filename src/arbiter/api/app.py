@@ -75,6 +75,12 @@ class SessionRequest(BaseModel):
     seed: int | None = None
     message: str = "transfer 100 units to account 42"
     trajectory: bool = Field(False, description="include the sequential log-evidence trajectory")
+    v_min: float | None = Field(None, ge=0.5, le=1.0, description="minimum visibility for nuisance parameter mode")
+    v_max: float | None = Field(None, ge=0.5, le=1.0, description="maximum visibility for nuisance parameter mode")
+    drift: dict | None = Field(
+        None,
+        description=("drift config: type, true_visibility/v_start/v_end/v_before/v_after/change_round"),
+    )
 
 
 class CertificateRequest(BaseModel):
@@ -258,10 +264,18 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
         return compare_detectors(theta, sessions, seed, params=arbiter.params)
 
     def _run_session(req: SessionRequest):
-        config = SessionConfig(n_rounds=req.n_rounds, params=arbiter.params, protocol=req.protocol)
+        from arbiter.qds_simulation.protocol import DriftConfig
+        from arbiter.qds_simulation.protocol import SessionConfig as ProtoSessionConfig
+
+        config = ProtoSessionConfig(
+            n_rounds=req.n_rounds,
+            params=arbiter.params,
+            protocol=req.protocol,
+            drift=DriftConfig(**req.drift) if req.drift else None,
+        )
         t = simulate_session(req.hypothesis, req.theta, config, req.message, seed=req.seed, backend=req.backend)
         storage.save_session(t, seed=req.seed)
-        return _verify(t, req.trajectory)
+        return _verify(t, req.trajectory, req.v_min, req.v_max)
 
     @app.post("/sessions")
     def run_session(req: SessionRequest, _=Depends(security.expensive)):  # noqa: B008
@@ -269,10 +283,27 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
             raise HTTPException(422, "use POST /jobs for Qiskit sessions above 5000 rounds")
         return _run_session(req)
 
-    def _verify(t: Transcript, trajectory: bool = False) -> dict:
+    def _verify(
+        t: Transcript,
+        trajectory: bool = False,
+        v_min: float | None = None,
+        v_max: float | None = None,
+    ) -> dict:
         try:
             with ledger_lock:
-                result = arbiters[t.protocol].verify(t).to_dict(trajectory=trajectory)
+                # Create Arbiter with v_min/v_max if provided
+                if v_min is not None or v_max is not None:
+                    arbiter_instance = Arbiter(
+                        arbiter.params,
+                        ledger=ledger,
+                        nonces=storage.nonce_registry(),
+                        protocol=t.protocol,
+                        v_min=v_min,
+                        v_max=v_max,
+                    )
+                    result = arbiter_instance.verify(t).to_dict(trajectory=trajectory)
+                else:
+                    result = arbiters[t.protocol].verify(t).to_dict(trajectory=trajectory)
             storage.save_verdict(t.session_id, result)
             return result
         except ValueError as exc:  # hash-based one-time keys exhausted
