@@ -15,6 +15,9 @@ def test_job_result_persists_across_storage_reopen(tmp_path):
     runner = JobRunner(storage, run)
     job_id = runner.submit("compare", {"value": 7})
     assert done.wait(2)
+    # The callback signals before JobRunner writes the result. Wait for that
+    # write before simulating a process restart with a new storage instance.
+    runner.pool.shutdown(wait=True)
     assert SQLiteStorage(tmp_path / "arbiter.db").job(job_id) == {
         "job_id": job_id,
         "owner": "anonymous:local",
@@ -24,7 +27,6 @@ def test_job_result_persists_across_storage_reopen(tmp_path):
         "result": {"kind": "compare", "value": 7},
         "error": None,
     }
-    runner.pool.shutdown(wait=True)
 
 
 def test_job_failure_is_persisted(tmp_path):
