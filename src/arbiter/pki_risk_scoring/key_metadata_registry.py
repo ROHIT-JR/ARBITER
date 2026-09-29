@@ -96,6 +96,9 @@ class KeyMetadata:
     def from_dict(cls, data: dict) -> KeyMetadata:
         """Load from a dictionary (e.g., from JSON)."""
         data = data.copy()
+        # export_to_json(include_assessments=True) annotates each entry with
+        # its assessment; drop it here (it is recomputed on import).
+        data.pop("assessment", None)
         data["key_type"] = KeyType(data["key_type"])
         data["source"] = KeySource(data["source"])
         if data.get("created_date") and isinstance(data["created_date"], str):
