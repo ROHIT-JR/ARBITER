@@ -1,10 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import VerdictPanel from '../VerdictPanel';
+import type { Verdict } from '../../api';
 
 describe('VerdictPanel', () => {
-  const mockVerdict = {
-    decision: 'REJECT' as const,
+  const mockVerdict: Verdict = {
+    decision: 'REJECT',
     attribution: 'forgery',
     simulation_ground_truth: { hypothesis: 'forgery', theta: 1.0 },
     session: { id: 'test-uuid', nonce: 'abc', backend: 'analytic', rounds: 1200, rounds_per_cell: [200, 100, 150, 150, 150, 150], transcript_digest: 'digest' },

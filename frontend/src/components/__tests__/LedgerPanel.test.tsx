@@ -5,7 +5,7 @@ import LedgerPanel from '../LedgerPanel';
 import { api } from '../../api';
 
 vi.mock('../../api', async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = await importOriginal<typeof import('../../api')>();
   return {
     ...actual,
     api: {
