@@ -12,7 +12,10 @@ test.describe('API offline state', () => {
     await page.getByLabel(/rounds/i).fill('100');
     await page.getByRole('button', { name: /run session/i }).click();
     
-    // Should show the API error (UNREACHABLE message in the alert region)
-    await expect(page.getByRole('alert')).toContainText(/Cannot reach the ARBITER API/i, { timeout: 10000 });
+    // Should show the API error. Two role=alert regions render offline (the
+    // run error plus AccuracyPanel's own error box), so scope to the run error.
+    await expect(page.locator('p.error', { hasText: /Cannot reach the ARBITER API/i })).toBeVisible({
+      timeout: 10000,
+    });
   });
 });

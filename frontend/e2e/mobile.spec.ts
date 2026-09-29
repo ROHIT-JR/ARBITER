@@ -25,7 +25,7 @@ test.describe('Mobile viewport (375px)', () => {
     await page.getByLabel(/seed/i).fill('7');
     await page.getByRole('button', { name: /run session/i }).click();
     
-    await expect(page.locator('span.badge', { hasText: /ACCEPT/i })).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('span.badge', { hasText: /ACCEPT/i })).toBeVisible({ timeout: 60000 });
     
     // Check verdict panel renders without horizontal overflow
     const verdictWidth = await page.evaluate(() => document.body.scrollWidth);

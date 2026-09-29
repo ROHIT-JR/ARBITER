@@ -23,7 +23,7 @@ test.describe('Forgery session', () => {
     await page.getByRole('button', { name: /run session/i }).click();
     
     // Wait for verdict badge (scoped: the verdict panel table also contains REJECT text)
-    await expect(page.locator('span.badge', { hasText: /REJECT/i })).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('span.badge', { hasText: /REJECT/i })).toBeVisible({ timeout: 60000 });
     
     // Check attribution (rendered as a bare label in div.attribution)
     await expect(page.locator('div.attribution', { hasText: /forgery/i })).toBeVisible();

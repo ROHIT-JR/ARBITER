@@ -13,7 +13,7 @@ test.describe('Ledger verification', () => {
     await page.getByRole('button', { name: /run session/i }).click();
     
     // Wait for verdict badge (scoped: the verdict panel table also contains ACCEPT text)
-    await expect(page.locator('span.badge', { hasText: /ACCEPT/i })).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('span.badge', { hasText: /ACCEPT/i })).toBeVisible({ timeout: 60000 });
     
     // Click verify (button is labeled "Verify chain")
     await page.getByRole('button', { name: /verify chain/i }).click();

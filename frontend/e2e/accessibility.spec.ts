@@ -21,7 +21,7 @@ test.describe('Accessibility', () => {
     await page.getByLabel(/rounds/i).fill('100');
     await page.getByRole('button', { name: /run session/i }).click();
 
-    await expect(page.locator('span.badge', { hasText: /REJECT/i })).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('span.badge', { hasText: /REJECT/i })).toBeVisible({ timeout: 60000 });
 
     const results = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa'])

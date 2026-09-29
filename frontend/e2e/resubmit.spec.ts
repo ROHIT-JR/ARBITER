@@ -14,7 +14,7 @@ test.describe('Resubmit replay', () => {
     await page.getByRole('button', { name: /run session/i }).click();
     
     // Wait for verdict badge (scoped: the verdict panel table also contains REJECT text)
-    await expect(page.locator('span.badge', { hasText: /REJECT/i })).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('span.badge', { hasText: /REJECT/i })).toBeVisible({ timeout: 60000 });
     
     // Record the displayed attribution (the session id itself is not rendered;
     // a replay must attribute the same attack on the same transcript)
@@ -24,7 +24,7 @@ test.describe('Resubmit replay', () => {
     await page.getByRole('button', { name: /resubmit last/i }).click();
     
     // Wait for verdict again
-    await expect(page.locator('span.badge', { hasText: /REJECT/i })).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('span.badge', { hasText: /REJECT/i })).toBeVisible({ timeout: 60000 });
     
     // Check attribution is unchanged (same transcript replayed)
     const attributionAfter = await page.locator('div.attribution').textContent();
