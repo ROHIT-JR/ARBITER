@@ -44,23 +44,28 @@ PQC_ALGORITHMS = {
     "LMS",
 }
 
-# Composite ML-DSA OIDs from draft-ietf-lamps-pq-composite-sigs
-# Base OID: 1.3.6.1.4.1.2.267.12 (IANA temporary assignment)
-# Format: (composite_oid_dotted_string, pqc_algorithm, traditional_algorithm, hash_algorithm)
+# Composite ML-DSA prototype OIDs from draft-ietf-lamps-pq-composite-sigs-07,
+# Table 1.  These are draft-specific and must not be mistaken for final IANA OIDs.
+COMPOSITE_OID_DRAFT = "draft-ietf-lamps-pq-composite-sigs-07"
 COMPOSITE_OID_MAP = {
-    "1.3.6.1.4.1.2.267.12.1": ("ML-DSA-44", "RSA-PSS", "SHA256"),
-    "1.3.6.1.4.1.2.267.12.2": ("ML-DSA-44", "RSA-PKCS1v1.5", "SHA256"),
-    "1.3.6.1.4.1.2.267.12.3": ("ML-DSA-44", "Ed25519", "SHA512"),
-    "1.3.6.1.4.1.2.267.12.4": ("ML-DSA-44", "ECDSA-P256", "SHA256"),
-    "1.3.6.1.4.1.2.267.12.5": ("ML-DSA-44", "ECDSA-brainpoolP256r1", "SHA256"),
-    "1.3.6.1.4.1.2.267.12.6": ("ML-DSA-65", "RSA-PSS", "SHA512"),
-    "1.3.6.1.4.1.2.267.12.7": ("ML-DSA-65", "RSA-PKCS1v1.5", "SHA512"),
-    "1.3.6.1.4.1.2.267.12.8": ("ML-DSA-65", "ECDSA-P256", "SHA512"),
-    "1.3.6.1.4.1.2.267.12.9": ("ML-DSA-65", "ECDSA-brainpoolP256r1", "SHA512"),
-    "1.3.6.1.4.1.2.267.12.10": ("ML-DSA-65", "Ed25519", "SHA512"),
-    "1.3.6.1.4.1.2.267.12.11": ("ML-DSA-87", "ECDSA-P384", "SHA512"),
-    "1.3.6.1.4.1.2.267.12.12": ("ML-DSA-87", "ECDSA-brainpoolP384r1", "SHA512"),
-    "1.3.6.1.4.1.2.267.12.13": ("ML-DSA-87", "Ed448", "SHA512"),
+    "2.16.840.1.114027.80.9.1.0": ("ML-DSA-44", "RSA-2048-PSS", "SHA256"),
+    "2.16.840.1.114027.80.9.1.1": ("ML-DSA-44", "RSA-2048-PKCS15", "SHA256"),
+    "2.16.840.1.114027.80.9.1.2": ("ML-DSA-44", "Ed25519", "SHA512"),
+    "2.16.840.1.114027.80.9.1.3": ("ML-DSA-44", "ECDSA-P256", "SHA256"),
+    "2.16.840.1.114027.80.9.1.4": ("ML-DSA-65", "RSA-3072-PSS", "SHA512"),
+    "2.16.840.1.114027.80.9.1.5": ("ML-DSA-65", "RSA-3072-PKCS15", "SHA512"),
+    "2.16.840.1.114027.80.9.1.6": ("ML-DSA-65", "RSA-4096-PSS", "SHA512"),
+    "2.16.840.1.114027.80.9.1.7": ("ML-DSA-65", "RSA-4096-PKCS15", "SHA512"),
+    "2.16.840.1.114027.80.9.1.8": ("ML-DSA-65", "ECDSA-P256", "SHA512"),
+    "2.16.840.1.114027.80.9.1.9": ("ML-DSA-65", "ECDSA-P384", "SHA512"),
+    "2.16.840.1.114027.80.9.1.10": ("ML-DSA-65", "ECDSA-brainpoolP256r1", "SHA512"),
+    "2.16.840.1.114027.80.9.1.11": ("ML-DSA-65", "Ed25519", "SHA512"),
+    "2.16.840.1.114027.80.9.1.12": ("ML-DSA-87", "ECDSA-P384", "SHA512"),
+    "2.16.840.1.114027.80.9.1.13": ("ML-DSA-87", "ECDSA-brainpoolP384r1", "SHA512"),
+    "2.16.840.1.114027.80.9.1.14": ("ML-DSA-87", "Ed448", "SHAKE256"),
+    "2.16.840.1.114027.80.9.1.15": ("ML-DSA-87", "RSA-3072-PSS", "SHA512"),
+    "2.16.840.1.114027.80.9.1.16": ("ML-DSA-87", "RSA-4096-PSS", "SHA512"),
+    "2.16.840.1.114027.80.9.1.17": ("ML-DSA-87", "ECDSA-P521", "SHA512"),
 }
 
 # Pure ML-DSA OIDs from RFC 9881
@@ -68,6 +73,25 @@ PURE_MLDSA_OIDS = {
     "2.16.840.1.101.3.4.3.17": "ML-DSA-44",
     "2.16.840.1.101.3.4.3.18": "ML-DSA-65",
     "2.16.840.1.101.3.4.3.19": "ML-DSA-87",
+}
+
+# Pure SLH-DSA public-key/signature OIDs, RFC 9909 section 2.
+_SLH_PARAMETERS = (
+    "SHA2-128s",
+    "SHA2-128f",
+    "SHA2-192s",
+    "SHA2-192f",
+    "SHA2-256s",
+    "SHA2-256f",
+    "SHAKE-128s",
+    "SHAKE-128f",
+    "SHAKE-192s",
+    "SHAKE-192f",
+    "SHAKE-256s",
+    "SHAKE-256f",
+)
+PURE_SLHDSA_OIDS = {
+    f"2.16.840.1.101.3.4.3.{number}": f"SLH-DSA-{name}" for number, name in enumerate(_SLH_PARAMETERS, start=20)
 }
 
 
@@ -100,12 +124,19 @@ def assess_composite_key(
     crqc_year: int = DEFAULT_CRQC_YEAR,
     now: datetime | None = None,
 ) -> RiskAssessment:
-    """Assess a composite/hybrid key by evaluating both components.
-
-    A hybrid certificate is only as strong as its weakest component.
-    The overall risk is the MINIMUM of the two component risks (both must be secure).
-    """
+    """Assess both components; either surviving component protects the hybrid."""
     now = now or datetime.now(timezone.utc)
+
+    trad_assessment_alg = traditional_algorithm
+    if traditional_algorithm.startswith("RSA-"):
+        trad_assessment_alg = "RSA"
+        if trad_key_bits is None:
+            trad_key_bits = int(traditional_algorithm.split("-")[1])
+    elif traditional_algorithm.startswith("ECDSA-"):
+        trad_assessment_alg = "ECDSA"
+        if trad_key_bits is None:
+            suffix = traditional_algorithm.split("-", 1)[1]
+            trad_key_bits = int(suffix[1:]) if suffix.startswith("P") else curve_bits(suffix)
 
     pqc_assessment = assess_key(
         pqc_algorithm,
@@ -116,7 +147,7 @@ def assess_composite_key(
         now=now,
     )
     trad_assessment = assess_key(
-        traditional_algorithm,
+        trad_assessment_alg,
         trad_key_bits,
         expires=expires,
         protection_years_after_expiry=protection_years_after_expiry,
@@ -124,8 +155,7 @@ def assess_composite_key(
         now=now,
     )
 
-    # Hybrid is only as strong as its weakest component — use MINIMUM score
-    # (lower score = lower risk = more secure)
+    # The lower risk component can retain security after the other fails.
     if pqc_assessment.score <= trad_assessment.score:
         weaker = pqc_assessment
     else:
@@ -146,7 +176,8 @@ def assess_composite_key(
         level=weaker.level,
         recommendation=(
             f"Hybrid certificate with {pqc_algorithm} (PQC) and {traditional_algorithm} (traditional). "
-            f"Overall risk governed by weaker component ({weaker.algorithm}): {weaker.recommendation}"
+            f"The stronger surviving component ({weaker.algorithm}) governs overall risk; "
+            f"the classical component has quantum exposure: {trad_assessment.recommendation}"
         ),
     )
 
@@ -273,7 +304,7 @@ def assess_key(
             key_bits = key_bits or 255
         if alg in ("ED448", "X448"):
             key_bits = key_bits or 448
-        n = key_bits or 256
+        n = key_bits if key_bits is not None and key_bits > 0 else 256
         if family == "ecc":
             classical = n // 2
             qubits = 9 * n + 2 * math.ceil(math.log2(n)) + 10

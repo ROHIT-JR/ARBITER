@@ -10,7 +10,9 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from arbiter.pki_risk_scoring.scoring import (
+    COMPOSITE_OID_DRAFT,
     DEFAULT_CRQC_YEAR,
+    PURE_SLHDSA_OIDS,
     RiskAssessment,
     assess_composite_key,
     assess_key,
@@ -20,6 +22,71 @@ from arbiter.pki_risk_scoring.scoring import (
 )
 
 _PEM_BLOCK = re.compile(rb"-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----", re.S)
+
+
+def _der_tlv(data: bytes, offset: int) -> tuple[int, bytes, int]:
+    """Read one bounded DER tag/length/value without decoding key material."""
+    if offset + 2 > len(data):
+        raise ValueError("truncated DER value")
+    tag = data[offset]
+    length_byte = data[offset + 1]
+    offset += 2
+    if length_byte & 0x80:
+        count = length_byte & 0x7F
+        if count == 0 or count > 4 or offset + count > len(data):
+            raise ValueError("invalid DER length")
+        length = int.from_bytes(data[offset : offset + count], "big")
+        offset += count
+    else:
+        length = length_byte
+    end = offset + length
+    if end > len(data):
+        raise ValueError("truncated DER value")
+    return tag, data[offset:end], end
+
+
+def _decode_oid(value: bytes) -> str:
+    if not value:
+        raise ValueError("empty DER OID")
+    first = value[0]
+    parts = [min(first // 40, 2), first - 40 * min(first // 40, 2)]
+    current = 0
+    for byte in value[1:]:
+        current = (current << 7) | (byte & 0x7F)
+        if not byte & 0x80:
+            parts.append(current)
+            current = 0
+    if current:
+        raise ValueError("truncated DER OID")
+    return ".".join(str(part) for part in parts)
+
+
+def _public_key_oid(cert) -> str:
+    """Read SubjectPublicKeyInfo's OID even when cryptography cannot load its key."""
+    tag, tbs, _ = _der_tlv(cert.tbs_certificate_bytes, 0)
+    if tag != 0x30:
+        raise ValueError("certificate TBS is not a DER sequence")
+    offset = 0
+    tag, _, end = _der_tlv(tbs, offset)
+    if tag == 0xA0:  # optional explicit version
+        offset = end
+    for _ in range(5):  # serial, signature, issuer, validity, subject
+        _, _, offset = _der_tlv(tbs, offset)
+    tag, spki, _ = _der_tlv(tbs, offset)
+    if tag != 0x30:
+        raise ValueError("missing SubjectPublicKeyInfo")
+    return _algorithm_oid(spki)
+
+
+def _algorithm_oid(value: bytes) -> str:
+    """Extract the first AlgorithmIdentifier OID from DER sequence content."""
+    tag, algorithm, _ = _der_tlv(value, 0)
+    if tag != 0x30:
+        raise ValueError("missing public-key AlgorithmIdentifier")
+    tag, oid, _ = _der_tlv(algorithm, 0)
+    if tag != 0x06:
+        raise ValueError("missing public-key algorithm OID")
+    return _decode_oid(oid)
 
 
 @dataclass
@@ -48,6 +115,15 @@ class CertificateReport:
 
 def _key_info(public_key) -> tuple[str, int | None]:
     from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed448, ed25519, rsa, x448, x25519
+
+    try:
+        from cryptography.hazmat.primitives.asymmetric import mldsa
+
+        for level in (44, 65, 87):
+            if isinstance(public_key, getattr(mldsa, f"MLDSA{level}PublicKey")):
+                return f"ML-DSA-{level}", None
+    except ImportError:
+        pass
 
     if isinstance(public_key, rsa.RSAPublicKey):
         return "RSA", public_key.key_size
@@ -85,7 +161,13 @@ def assess_certificates(
     """Assess every certificate in a PEM bundle, or a single DER certificate."""
     reports = []
     for cert in load_certificates(data):
-        alg, bits = _key_info(cert.public_key())
+        from cryptography.exceptions import UnsupportedAlgorithm
+
+        key_oid = _public_key_oid(cert)
+        try:
+            alg, bits = _key_info(cert.public_key())
+        except (UnsupportedAlgorithm, ValueError):
+            alg, bits = is_pure_mldsa_oid(key_oid) or PURE_SLHDSA_OIDS.get(key_oid) or key_oid, None
         not_after = cert.not_valid_after_utc
         sig_oid = cert.signature_algorithm_oid
         sig_oid_dotted = sig_oid.dotted_string
@@ -100,11 +182,12 @@ def assess_certificates(
             pqc_alg, trad_alg, hash_alg = composite
             composite_info = {
                 "type": "hybrid_signature",
-                "draft_version": "draft-ietf-lamps-pq-composite-sigs-07",
+                "draft_version": COMPOSITE_OID_DRAFT,
                 "pqc_algorithm": pqc_alg,
                 "traditional_algorithm": trad_alg,
                 "hash_algorithm": hash_alg,
                 "signature_oid": sig_oid_dotted,
+                "public_key_oid": key_oid,
             }
             composite_assessment = assess_composite_key(
                 pqc_alg,
@@ -121,13 +204,52 @@ def assess_certificates(
                 "algorithm": mldsa_alg,
                 "signature_oid": sig_oid_dotted,
             }
-        # Unknown OID: attempt ASN.1 parsing for algorithm identifier fallback
-        else:
+        elif slh_alg := PURE_SLHDSA_OIDS.get(sig_oid_dotted):
+            composite_info = {
+                "type": "pure_slh_dsa_signature",
+                "algorithm": slh_alg,
+                "signature_oid": sig_oid_dotted,
+            }
+        elif alg == key_oid:
             composite_info = {
                 "type": "unknown_algorithm",
                 "signature_oid": sig_oid_dotted,
                 "signature_algorithm_name": sig_alg_name,
+                "public_key_oid": key_oid,
             }
+
+        # ITU-T X.509 (2019) alternative public-key/signature extensions.
+        # This reports their structure and algorithm IDs; signature validity
+        # remains the responsibility of a certificate-chain verifier.
+        extensions = {ext.oid.dotted_string: ext.value for ext in cert.extensions}
+        if all(oid in extensions for oid in ("2.5.29.72", "2.5.29.73", "2.5.29.74")):
+            alt_spki = extensions["2.5.29.72"].value
+            tag, alt_spki_content, _ = _der_tlv(alt_spki, 0)
+            if tag != 0x30:
+                raise ValueError("malformed alternative SubjectPublicKeyInfo")
+            alt_key_oid = _algorithm_oid(alt_spki_content)
+            tag, alt_alg_content, _ = _der_tlv(extensions["2.5.29.73"].value, 0)
+            if tag != 0x30:
+                raise ValueError("malformed alternative signature AlgorithmIdentifier")
+            alt_sig_oid = _decode_oid(_der_tlv(alt_alg_content, 0)[1])
+            alt_alg = is_pure_mldsa_oid(alt_key_oid) or PURE_SLHDSA_OIDS.get(alt_key_oid)
+            composite_info = {
+                "type": "alternative_signature",
+                "public_key_oid": key_oid,
+                "alternative_public_key_oid": alt_key_oid,
+                "alternative_signature_oid": alt_sig_oid,
+                "alternative_signature_algorithm": alt_alg,
+            }
+            if alt_alg:
+                composite_assessment = assess_composite_key(
+                    alt_alg,
+                    alg,
+                    trad_key_bits=bits,
+                    expires=not_after,
+                    protection_years_after_expiry=protection_years_after_expiry,
+                    crqc_year=crqc_year,
+                    now=now,
+                )
 
         # Use composite assessment if available, otherwise fall back to public key assessment
         if composite_assessment:

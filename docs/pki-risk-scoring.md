@@ -89,4 +89,5 @@ leaf does not repair the trust path.
 ## Limitations
 
 - `crqc_year` is an assumption, not a prediction. Run the numbers under several values.
-- Hybrid (composite) certificates are not yet recognized.
+- `assess_certificates` recognizes pure ML-DSA and SLH-DSA identifiers, composite signature/key identifiers from [draft-ietf-lamps-pq-composite-sigs-07](https://github.com/lamps-wg/draft-composite-sigs/blob/draft-ietf-lamps-pq-composite-sigs-07/draft-ietf-lamps-pq-composite-sigs.md), and X.509 alternative public-key/signature extensions. Composite assessments use the lower of the traditional and post-quantum risk scores: both components must fail before the hybrid construction loses its intended protection. The OID table is tied to draft 07 and must be reviewed when the draft changes.
+- This is an algorithm and key-risk inventory, not certificate-path or cryptographic signature validation. An unrecognized public-key OID is reported with its OID rather than silently treated as a known algorithm. Verify signatures and trust separately before relying on a certificate.
