@@ -10,21 +10,22 @@ test.describe('Resubmit replay', () => {
     await page.getByLabel(/backend/i).selectOption('analytic');
     await page.getByRole('button', { name: /run session/i }).click();
     
-    // Wait for verdict
-    await expect(page.getByText(/REJECT/i)).toBeVisible({ timeout: 30000 });
+    // Wait for verdict badge (scoped: the verdict panel table also contains REJECT text)
+    await expect(page.locator('span.badge', { hasText: /REJECT/i })).toBeVisible({ timeout: 30000 });
     
-    // Get session ID
-    const sessionIdBefore = await page.getByText(/session:/i).textContent();
+    // Record the displayed attribution (the session id itself is not rendered;
+    // a replay must attribute the same attack on the same transcript)
+    const attributionBefore = await page.locator('div.attribution').textContent();
     
     // Click resubmit
     await page.getByRole('button', { name: /resubmit last/i }).click();
     
     // Wait for verdict again
-    await expect(page.getByText(/REJECT/i)).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('span.badge', { hasText: /REJECT/i })).toBeVisible({ timeout: 30000 });
     
-    // Check session ID is the same (replay)
-    const sessionIdAfter = await page.getByText(/session:/i).textContent();
-    expect(sessionIdAfter).toBe(sessionIdBefore);
+    // Check attribution is unchanged (same transcript replayed)
+    const attributionAfter = await page.locator('div.attribution').textContent();
+    expect(attributionAfter).toBe(attributionBefore);
     
     // Evidence chart should still be visible
     await expect(page.getByRole('img')).toBeVisible();

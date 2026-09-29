@@ -145,9 +145,13 @@ jobs:
       - run: npm ci
       - run: npm run build
       - name: Start backend
+        env:
+          ARBITER_ALLOW_PLAINTEXT_KEYS: "1"
+          ARBITER_DATA_DIR: ${{ runner.temp }}/arbiter-e2e-data
         run: |
           cd ..
           pip install -e .[api] -q
+          mkdir -p "$ARBITER_DATA_DIR"
           uvicorn --factory arbiter.api.app:create_app --port 8000 &
           sleep 3
       - run: npm run test:e2e

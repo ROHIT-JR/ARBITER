@@ -12,7 +12,7 @@ test.describe('API offline state', () => {
     await page.getByLabel(/rounds/i).fill('100');
     await page.getByRole('button', { name: /run session/i }).click();
     
-    // Should show offline message
-    await expect(page.getByText(/cannot reach api/i)).toBeVisible({ timeout: 10000 });
+    // Should show the API error (UNREACHABLE message in the alert region)
+    await expect(page.getByRole('alert')).toContainText(/Cannot reach the ARBITER API/i, { timeout: 10000 });
   });
 });

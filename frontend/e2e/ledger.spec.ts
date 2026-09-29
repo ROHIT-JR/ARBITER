@@ -10,13 +10,13 @@ test.describe('Ledger verification', () => {
     await page.getByLabel(/backend/i).selectOption('analytic');
     await page.getByRole('button', { name: /run session/i }).click();
     
-    // Wait for verdict
-    await expect(page.getByText(/ACCEPT/i)).toBeVisible({ timeout: 30000 });
+    // Wait for verdict badge (scoped: the verdict panel table also contains ACCEPT text)
+    await expect(page.locator('span.badge', { hasText: /ACCEPT/i })).toBeVisible({ timeout: 30000 });
     
     // Click verify ledger
     await page.getByRole('button', { name: /verify ledger/i }).click();
     
-    // Wait for verification result
-    await expect(page.getByText(/✓ ledger ok/i)).toBeVisible({ timeout: 10000 });
+    // Wait for verification result (LedgerPanel renders "✓ N entries valid")
+    await expect(page.getByText(/entries valid/i)).toBeVisible({ timeout: 10000 });
   });
 });
