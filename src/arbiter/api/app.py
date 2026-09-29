@@ -253,6 +253,24 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
         """Helstrom / quantum-Chernoff limits vs what ARBITER's measurements achieve."""
         return attack_bounds(theta, SessionConfig(params=arbiter.params), epsilon)
 
+    @app.get("/security")
+    def protocol_security(
+        epsilon: float = Query(1e-10, gt=0, lt=1),
+        visibility: float | None = Query(None, gt=0, le=1),
+    ):
+        """Finite-size QDS security parameters under the stated collective-attack assumptions."""
+        channel = (
+            arbiter.params
+            if visibility is None
+            else ChannelParams(visibility=visibility, storage_visibility=arbiter.params.storage_visibility)
+        )
+        try:
+            parameters = minimum_signature_parameters(epsilon, channel)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return parameters.to_dict() | {"visibility": channel.visibility, "curve": security_curve(parameters, channel)}
+
+
     @app.get("/compare")
     def compare(  # noqa: B008
         theta: float = Query(1.0, gt=0, le=1),
