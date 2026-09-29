@@ -16,6 +16,8 @@ from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from arbiter import __version__
@@ -97,6 +99,40 @@ def _summarise_entry(e: dict) -> dict:
     return out
 
 
+def dashboard_dist() -> Path:
+    """Return the built dashboard location (override with ARBITER_DASHBOARD_DIR)."""
+    override = os.environ.get("ARBITER_DASHBOARD_DIR")
+    if override:
+        return Path(override)
+    return Path(__file__).resolve().parents[1] / "dashboard"
+
+
+def _load_ledger_keys(data_dir: Path) -> tuple[LedgerKeys, Path, str | None, bool]:
+    data_dir.mkdir(parents=True, exist_ok=True)
+    key_path = data_dir / "ledger_keys.json"
+    pending_path = key_path.with_name(f"{key_path.name}.next")
+    if pending_path.exists():
+        pending_path.replace(key_path)
+    key_passphrase = os.environ.get("ARBITER_KEY_PASSPHRASE")
+    require_passphrase = bool(key_passphrase)
+    if key_path.exists():
+        if key_passphrase:
+            keys = LedgerKeys.load_encrypted(key_path, key_passphrase)
+        elif require_passphrase:
+            raise ValueError("ARBITER_KEY_PASSPHRASE is required to load persisted ledger keys")
+        else:
+            keys = LedgerKeys.load(key_path)
+    else:
+        keys = LedgerKeys.generate()
+        if key_passphrase:
+            keys.save_encrypted(key_path, key_passphrase)
+        elif require_passphrase:
+            raise ValueError("ARBITER_KEY_PASSPHRASE is required to persist new ledger keys")
+        else:
+            keys.save(key_path)
+    return keys, key_path, key_passphrase, require_passphrase
+
+
 def create_app(data_dir: Path | None = None, params: ChannelParams | None = None) -> FastAPI:
     """Build the app. ``$ARBITER_NOISE_PRESET`` (a key of ``arbiter.noise.PRESETS``)
     calibrates the legitimate channel from a trapped-ion noise model."""
@@ -106,13 +142,14 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
         if preset not in PRESETS:
             raise ValueError(f"unknown ARBITER_NOISE_PRESET {preset!r}; choose from {sorted(PRESETS)}")
         params = PRESETS[preset].channel_params()
-    key_path = data_dir / "ledger_keys.json"
-    if key_path.exists():
-        keys = LedgerKeys.load(key_path)
-    else:
-        keys = LedgerKeys.generate()
-        keys.save(key_path)
-    ledger = AuditLedger(keys, data_dir / "ledger.jsonl")
+    keys, key_path, key_passphrase, require_passphrase = _load_ledger_keys(data_dir)
+    ledger = AuditLedger(
+        keys,
+        data_dir / "ledger.jsonl",
+        key_store_path=key_path,
+        key_passphrase=key_passphrase,
+        require_passphrase=require_passphrase,
+    )
     storage = SQLiteStorage(data_dir / "arbiter.db")
     arbiter = Arbiter(params, ledger=ledger, nonces=storage.nonce_registry())
     arbiters = {
@@ -282,6 +319,15 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
         with ledger_lock:
             return ledger.verify().to_dict()
 
+    @app.post("/ledger/rotate")
+    def ledger_rotate(_=Depends(security.expensive)):  # noqa: B008
+        with ledger_lock:
+            try:
+                transition = ledger.rotate_now()
+            except ValueError as exc:
+                raise HTTPException(409, f"ledger key rotation failed: {exc}") from exc
+        return {"epoch": ledger.keys.epoch_id, "transition_index": transition["index"]}
+
     @app.get("/ledger/{index}")
     def ledger_entry(index: int):
         if not 0 <= index < len(ledger.entries):
@@ -401,5 +447,26 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
             except ScanError as exc:
                 raise HTTPException(422, str(exc)) from exc
         return reports
+
+    @app.middleware("http")
+    async def api_prefix_compat(request: Request, call_next):
+        path = request.scope.get("path", "")
+        if path == "/api":
+            request.scope["path"] = "/"
+        elif path.startswith("/api/"):
+            request.scope["path"] = path[4:]
+        return await call_next(request)
+
+    static_dir = dashboard_dist()
+    assets_dir = static_dir / "assets"
+    if assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="dashboard-assets")
+
+    @app.get("/", include_in_schema=False)
+    def dashboard_index():
+        index = static_dir / "index.html"
+        if not index.is_file():
+            raise HTTPException(404, f"dashboard index not found at {index}")
+        return FileResponse(index)
 
     return app
