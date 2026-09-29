@@ -189,9 +189,20 @@ def test_epoch_rotation(tmp_path):
     transition = transition_entries[0]
     assert transition["payload"]["type"] == "key_transition"
     assert "cross_signature" in transition["payload"]
+    assert ledger.verify().ok
+    assert ledger.verify_cross_epoch(ledger.genesis_hash).ok
 
-    # Verify individual epoch 1 entries can be verified with epoch 1 keys
-    # (Full cross-epoch verification requires storing epoch keys, which is a separate feature)
+    forged = copy.deepcopy(ledger.entries)
+    forged[5]["signatures"]["mldsa"] = ""
+    assert not verify_entries(forged).ok
+
+
+def test_small_hbs_capacity_rotates_without_exhaustion():
+    ledger = AuditLedger(LedgerKeys.generate(hbs_height=2))
+    for i in range(12):
+        ledger.append({"type": "verdict", "i": i})
+    assert ledger.keys.epoch_id >= 2
+    assert ledger.verify().ok
 
 
 def test_epoch_cross_signature_verification():
