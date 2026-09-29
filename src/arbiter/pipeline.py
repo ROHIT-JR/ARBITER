@@ -87,6 +87,8 @@ class Arbiter:
         nonces: NonceRegistry | None = None,
         *,
         protocol: str = "prf",
+        v_min: float | None = None,
+        v_max: float | None = None,
     ):
         self.params = params or ChannelParams()
         self.alpha = alpha
@@ -98,7 +100,9 @@ class Arbiter:
         self.layer_alpha = alpha / 3
         self.chsh_threshold = chsh_threshold
         self.protocol = _normalise_protocol(protocol)
-        self.unified = UnifiedDetector(self.params, self.layer_alpha, protocol=self.protocol)
+        # Optional visibility-nuisance range (#24 API): forwarded to the
+        # unified detector, which falls back to design visibility when None.
+        self.unified = UnifiedDetector(self.params, self.layer_alpha, protocol=self.protocol, v_min=v_min, v_max=v_max)
         self.sequential = SequentialDetector(self.params, alpha, protocol=self.protocol)
         self.temporal = TemporalDetector(self.params, self.layer_alpha)
         self.nonces = nonces or NonceRegistry()
