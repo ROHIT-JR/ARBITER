@@ -1,3 +1,4 @@
+from arbiter.pki_risk_scoring.cbom import cbom_to_json, certificates_to_cbom
 from arbiter.pki_risk_scoring.certificates import CertificateReport, assess_certificates
 from arbiter.pki_risk_scoring.chain import (
     ChainLinkReport,
@@ -33,6 +34,8 @@ __all__ = [
     "assess_chains",
     "assess_composite_key",
     "assess_key",
+    "certificates_to_cbom",
+    "cbom_to_json",
     "is_composite_oid",
     "is_pure_mldsa_oid",
     "parse_composite_oid",

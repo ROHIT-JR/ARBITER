@@ -62,7 +62,8 @@ jobs:
           pytest -q -m "not slow"
           tests/test_properties.py tests/test_detection.py tests/test_ledger.py
           tests/test_noise.py tests/test_pki.py tests/test_quantum.py tests/test_simulation.py
-          tests/test_visibility.py
+          tests/test_visibility.py tests/test_cbom.py tests/test_multiparty_qds.py
+          tests/test_security_bounds.py tests/test_key_metadata_registry.py
           --cov=arbiter --cov-report=term-missing --cov-report=xml:coverage.xml
           --cov-report=html:htmlcov --cov-fail-under=90
       - name: Publish coverage report
@@ -110,3 +111,53 @@ jobs:
           node --input-type=module -e 'import { readdirSync, readFileSync } from "node:fs"; import { join } from "node:path"; const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => entry.isDirectory() ? walk(join(dir, entry.name)) : [join(dir, entry.name)]); const external = "(?:https?:)?\\/\\/(?!127\\.0\\.0\\.1(?::\\d+)?(?:\\/|$)|localhost(?::\\d+)?(?:\\/|$))"; for (const file of walk("dist").filter((path) => /\.(html|css|js)$/.test(path))) { const body = readFileSync(file, "utf8"); const pattern = file.endsWith(".js") ? new RegExp(`(?:fetch|sendBeacon|open|WebSocket)\\s*\\(\\s*["\x27]${external}`, "i") : new RegExp(external, "i"); if (pattern.test(body)) throw new Error(`dashboard asset makes an external request: ${file}`); }'
       - name: Assert packaged dashboard assets are current
         run: git diff --exit-code -- src/arbiter/dashboard
+
+  frontend-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run test:unit:run -- --coverage
+      - uses: codecov/codecov-action@v4
+        if: always()
+
+  frontend-e2e:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - run: npm ci
+      - run: npm run build
+      - name: Start backend
+        env:
+          ARBITER_ALLOW_PLAINTEXT_KEYS: "1"
+          ARBITER_DATA_DIR: ${{ runner.temp }}/arbiter-e2e-data
+        run: |
+          cd ..
+          pip install -e .[api] -q
+          mkdir -p "$ARBITER_DATA_DIR"
+          uvicorn --factory arbiter.api.app:create_app --port 8000 &
+          sleep 3
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: frontend/test-results/
