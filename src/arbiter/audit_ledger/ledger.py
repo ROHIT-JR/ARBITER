@@ -224,11 +224,12 @@ class AuditLedger:
         self.keys = LedgerKeys(new_epoch_keys.mldsa, new_epoch_keys.hbs, new_epoch_keys.epoch_id, hbs_leaf=1)
         if pending_path is not None:
             pending_path.replace(self.key_store_path)
-        previous = self.epoch_manager.current_epoch
         if self.epoch_manager.epochs:
             self.epoch_manager.epochs[-1].end_index = global_index + 1
             self.epoch_manager.epochs[-1].status = "retired"
-        self.epoch_manager.previous_epoch = previous
+            self.epoch_manager.epochs[-1].hbs_leaves_used = old_keys.hbs_leaf
+            self.epoch_manager.epochs[-1].cross_signature = transition_payload["new_key_signature"]
+            self.epoch_manager.previous_epoch = self.epoch_manager.epochs[-1]
         self.epoch_manager.current_epoch = EpochKeys(
             self.keys.epoch_id,
             self.keys.mldsa,

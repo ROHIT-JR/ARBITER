@@ -175,6 +175,8 @@ def test_epoch_rotation(tmp_path):
     assert len(mgr.epochs) == 2
     assert mgr.epochs[0].status == "retired"
     assert mgr.epochs[1].status == "active"
+    assert mgr.previous_epoch is mgr.epochs[0]
+    assert not hasattr(mgr.previous_epoch, "mldsa")
     # Cross-signature is on the new epoch's keys, accessible via epoch manager
     assert mgr.current_epoch is not None
     assert mgr.current_epoch.cross_signature is not None

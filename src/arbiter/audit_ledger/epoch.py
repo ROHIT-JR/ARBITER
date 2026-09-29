@@ -110,7 +110,7 @@ class EpochManager:
         self.max_hbs_usage = int((2**hbs_height) * max_hbs_usage_ratio)
         self.epochs: list[EpochMetadata] = []
         self.current_epoch: EpochKeys | None = None
-        self.previous_epoch: EpochKeys | None = None
+        self.previous_epoch: EpochMetadata | None = None
 
     def initialize_genesis(self) -> EpochKeys:
         """Create epoch 0 (genesis)."""
@@ -140,7 +140,10 @@ class EpochManager:
         new_epoch.cross_signature = cross_sig
 
         # Update tracking
-        self.previous_epoch = self.current_epoch
+        # Keep only public lifecycle metadata after the transition. Retaining
+        # EpochKeys here would keep the retired signing secrets live in memory.
+        self.epochs[-1].cross_signature = cross_sig
+        self.previous_epoch = self.epochs[-1]
         self.current_epoch = new_epoch
         self.epochs.append(
             EpochMetadata(
