@@ -62,6 +62,7 @@ jobs:
           pytest -q -m "not slow"
           tests/test_properties.py tests/test_detection.py tests/test_ledger.py
           tests/test_noise.py tests/test_pki.py tests/test_quantum.py tests/test_simulation.py
+          tests/test_visibility.py
           --cov=arbiter --cov-report=term-missing --cov-report=xml:coverage.xml
           --cov-report=html:htmlcov --cov-fail-under=90
       - name: Publish coverage report
