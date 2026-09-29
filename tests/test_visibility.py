@@ -73,7 +73,7 @@ def test_drift_config_static_offset():
     config = SessionConfig(
         n_rounds=500,
         params=ChannelParams(visibility=0.92),
-        drift=DriftConfig(type="static_offset", true_visibility=0.88)
+        drift=DriftConfig(type="static_offset", true_visibility=0.88),
     )
     t = simulate_session(Hypothesis.LEGITIMATE, 0.0, config, backend="analytic")
     # True visibility is 0.88, so mismatch rate should be ~0.06 not 0.04
@@ -87,7 +87,7 @@ def test_drift_config_linear():
     config = SessionConfig(
         n_rounds=500,
         params=ChannelParams(visibility=0.92),
-        drift=DriftConfig(type="linear_drift", v_start=0.92, v_end=0.85)
+        drift=DriftConfig(type="linear_drift", v_start=0.92, v_end=0.85),
     )
     t = simulate_session(Hypothesis.LEGITIMATE, 0.0, config, backend="analytic")
     n, k = t.counts()
@@ -122,7 +122,7 @@ def test_unified_detector_nuisance_parameter():
     config = SessionConfig(
         n_rounds=500,
         params=ChannelParams(visibility=0.88),  # True visibility
-        drift=DriftConfig(type="static_offset", true_visibility=0.88)
+        drift=DriftConfig(type="static_offset", true_visibility=0.88),
     )
     t = simulate_session(Hypothesis.LEGITIMATE, 0.0, config, backend="analytic")
 
@@ -148,7 +148,7 @@ def test_far_control_under_drift():
         config = SessionConfig(
             n_rounds=200,
             params=ChannelParams(visibility=0.88),
-            drift=DriftConfig(type="static_offset", true_visibility=0.88)
+            drift=DriftConfig(type="static_offset", true_visibility=0.88),
         )
         t = simulate_session(Hypothesis.LEGITIMATE, 0.0, config, seed=i, backend="analytic")
         verdict = detector.evaluate(t)
@@ -171,7 +171,7 @@ def test_detector_without_nuisance_fails_under_drift():
         config = SessionConfig(
             n_rounds=200,
             params=ChannelParams(visibility=0.88),
-            drift=DriftConfig(type="static_offset", true_visibility=0.88)
+            drift=DriftConfig(type="static_offset", true_visibility=0.88),
         )
         t = simulate_session(Hypothesis.LEGITIMATE, 0.0, config, seed=i, backend="analytic")
         verdict = detector.evaluate(t)
@@ -195,7 +195,7 @@ def test_attack_power_preserved():
         config = SessionConfig(
             n_rounds=300,
             params=ChannelParams(visibility=0.92),
-            drift=DriftConfig(type="static_offset", true_visibility=0.92)
+            drift=DriftConfig(type="static_offset", true_visibility=0.92),
         )
         t = simulate_session(Hypothesis.FORGERY, 0.5, config, seed=i, backend="analytic")
 
@@ -222,7 +222,7 @@ def test_v_hat_accuracy():
         config = SessionConfig(
             n_rounds=1200,
             params=ChannelParams(visibility=0.88),
-            drift=DriftConfig(type="static_offset", true_visibility=0.88)
+            drift=DriftConfig(type="static_offset", true_visibility=0.88),
         )
         t = simulate_session(Hypothesis.LEGITIMATE, 0.0, config, seed=i, backend="analytic")
         verdict = detector.evaluate(t)
@@ -252,7 +252,7 @@ def test_arbiter_pipeline_v_estimates():
         config = SessionConfig(
             n_rounds=500,
             params=ChannelParams(visibility=0.88),
-            drift=DriftConfig(type="static_offset", true_visibility=0.88)
+            drift=DriftConfig(type="static_offset", true_visibility=0.88),
         )
         t = simulate_session(Hypothesis.LEGITIMATE, 0.0, config, backend="analytic")
         verdict = arb.verify(t)

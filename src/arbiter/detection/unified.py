@@ -134,6 +134,7 @@ class UnifiedDetector:
     def _ll0_v(self, n: np.ndarray, k: np.ndarray, v: float) -> np.ndarray:
         """Log-likelihood under H0 at specific visibility v."""
         from arbiter.qds_simulation.model import _legit_cell_probabilities
+
         p0_v = _legit_cell_probabilities(v, self.protocol)
         logp0_v = np.log(np.clip(np.stack([1 - p0_v, p0_v]), 1e-300, None))
         return k @ logp0_v[1] + (n - k) @ logp0_v[0]
@@ -173,15 +174,15 @@ class UnifiedDetector:
 
         # Precompute alternative likelihoods for all (h,θ,v) combinations
         from arbiter.qds_simulation.model import ALL_OR_NOTHING, ATTACKS, _legit_cell_probabilities, cell_probabilities
+
         components = [(h, float(t)) for h in ATTACKS for t in ((1.0,) if h in ALL_OR_NOTHING else self.theta_grid)]
 
         # Compute max_{h,θ,v} L(h,θ,v) for each sample
         max_alt_ll = -np.inf
         for v in v_grid:
-            alt_v = np.array([
-                cell_probabilities(h, t, ChannelParams(visibility=v), self.protocol)
-                for h, t in components
-            ])
+            alt_v = np.array(
+                [cell_probabilities(h, t, ChannelParams(visibility=v), self.protocol) for h, t in components]
+            )
             logalt_v = np.log(np.clip(np.stack([1 - alt_v, alt_v]), 1e-300, None))
             llalt = k @ logalt_v[1].T + (n - k) @ logalt_v[0].T
             max_alt_ll = np.maximum(max_alt_ll, llalt.max(axis=-1))
@@ -206,6 +207,7 @@ class UnifiedDetector:
     def _draw_null_counts_v(self, n: np.ndarray, rng: np.random.Generator, v: float) -> np.ndarray:
         """Draw calibration counts under H0 at specific visibility v."""
         from arbiter.qds_simulation.model import _legit_cell_probabilities
+
         p0_v = _legit_cell_probabilities(v, self.protocol)
         return rng.binomial(n, p0_v, size=(self.n_calibration, len(n)))
 
@@ -282,16 +284,10 @@ class UnifiedDetector:
             attribution=attribution,
             posterior=posterior,
             theta_hat={
-                h.value: self.components[idx[self._llalt(n, k)[idx].argmax()]][1]
-                for h, idx in self.groups.items()
+                h.value: self.components[idx[self._llalt(n, k)[idx].argmax()]][1] for h, idx in self.groups.items()
             },
-            loglik={
-                Hypothesis.LEGITIMATE.value: float(self._ll0(n, k))
-            }
-            | {
-                h.value: float(self._llalt(n, k)[idx].max())
-                for h, idx in self.groups.items()
-            },
+            loglik={Hypothesis.LEGITIMATE.value: float(self._ll0(n, k))}
+            | {h.value: float(self._llalt(n, k)[idx].max()) for h, idx in self.groups.items()},
             v_hat=v_hat,
             v_ci=v_ci,
             v_design=self.params.visibility,

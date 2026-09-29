@@ -90,9 +90,7 @@ class Arbiter:
         self.alpha = alpha
         self.chsh_threshold = chsh_threshold
         self.protocol = _normalise_protocol(protocol)
-        self.unified = UnifiedDetector(
-            self.params, alpha, protocol=self.protocol, v_min=v_min, v_max=v_max
-        )
+        self.unified = UnifiedDetector(self.params, alpha, protocol=self.protocol, v_min=v_min, v_max=v_max)
         self.sequential = SequentialDetector(self.params, alpha, protocol=self.protocol)
         self.nonces = nonces or NonceRegistry()
         self.ledger = ledger

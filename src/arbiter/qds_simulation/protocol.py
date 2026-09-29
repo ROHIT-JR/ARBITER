@@ -49,13 +49,14 @@ class DriftConfig:
     type="linear_drift": True visibility changes linearly from v_start to v_end.
     type="step_change": Visibility jumps from v_before to v_after at change_round.
     """
+
     type: Literal["static_offset", "linear_drift", "step_change"]
-    true_visibility: float = 0.0       # for static_offset: actual v (calibrated v is in params)
-    v_start: float = 0.0               # for linear_drift: visibility at round 0
-    v_end: float = 0.0                 # for linear_drift: visibility at round n_rounds
-    v_before: float = 0.0              # for step_change: visibility before change_round
-    v_after: float = 0.0               # for step_change: visibility after change_round
-    change_round: int = 0              # for step_change: round index where change occurs
+    true_visibility: float = 0.0  # for static_offset: actual v (calibrated v is in params)
+    v_start: float = 0.0  # for linear_drift: visibility at round 0
+    v_end: float = 0.0  # for linear_drift: visibility at round n_rounds
+    v_before: float = 0.0  # for step_change: visibility before change_round
+    v_after: float = 0.0  # for step_change: visibility after change_round
+    change_round: int = 0  # for step_change: round index where change occurs
 
 
 @dataclass(frozen=True)

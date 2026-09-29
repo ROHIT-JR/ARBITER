@@ -75,18 +75,11 @@ class SessionRequest(BaseModel):
     seed: int | None = None
     message: str = "transfer 100 units to account 42"
     trajectory: bool = Field(False, description="include the sequential log-evidence trajectory")
-    v_min: float | None = Field(
-        None, ge=0.5, le=1.0, description="minimum visibility for nuisance parameter mode"
-    )
-    v_max: float | None = Field(
-        None, ge=0.5, le=1.0, description="maximum visibility for nuisance parameter mode"
-    )
+    v_min: float | None = Field(None, ge=0.5, le=1.0, description="minimum visibility for nuisance parameter mode")
+    v_max: float | None = Field(None, ge=0.5, le=1.0, description="maximum visibility for nuisance parameter mode")
     drift: dict | None = Field(
         None,
-        description=(
-            "drift config: type, "
-            "true_visibility/v_start/v_end/v_before/v_after/change_round"
-        ),
+        description=("drift config: type, true_visibility/v_start/v_end/v_before/v_after/change_round"),
     )
 
 
@@ -273,11 +266,12 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
     def _run_session(req: SessionRequest):
         from arbiter.qds_simulation.protocol import DriftConfig
         from arbiter.qds_simulation.protocol import SessionConfig as ProtoSessionConfig
+
         config = ProtoSessionConfig(
             n_rounds=req.n_rounds,
             params=arbiter.params,
             protocol=req.protocol,
-            drift=DriftConfig(**req.drift) if req.drift else None
+            drift=DriftConfig(**req.drift) if req.drift else None,
         )
         t = simulate_session(req.hypothesis, req.theta, config, req.message, seed=req.seed, backend=req.backend)
         storage.save_session(t, seed=req.seed)
@@ -290,11 +284,11 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
         return _run_session(req)
 
     def _verify(
-    t: Transcript,
-    trajectory: bool = False,
-    v_min: float | None = None,
-    v_max: float | None = None,
-) -> dict:
+        t: Transcript,
+        trajectory: bool = False,
+        v_min: float | None = None,
+        v_max: float | None = None,
+    ) -> dict:
         try:
             with ledger_lock:
                 # Create Arbiter with v_min/v_max if provided
