@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import VerdictPanel from '../VerdictPanel';
+import type { Verdict } from '../../api';
 
 describe('VerdictPanel', () => {
-  const mockVerdict = {
+  const mockVerdict: Verdict = {
     decision: 'REJECT' as const,
     attribution: 'forgery',
     simulation_ground_truth: { hypothesis: 'forgery', theta: 1.0 },
