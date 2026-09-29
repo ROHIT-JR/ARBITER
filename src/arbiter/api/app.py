@@ -261,7 +261,8 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
         return compare_detectors(theta, sessions, seed, params=arbiter.params)
 
     def _run_session(req: SessionRequest):
-        from arbiter.qds_simulation.protocol import SessionConfig as ProtoSessionConfig, DriftConfig
+        from arbiter.qds_simulation.protocol import DriftConfig
+        from arbiter.qds_simulation.protocol import SessionConfig as ProtoSessionConfig
         config = ProtoSessionConfig(
             n_rounds=req.n_rounds,
             params=arbiter.params,

@@ -3,20 +3,20 @@
 import numpy as np
 import pytest
 
+from arbiter.detection.unified import UnifiedDetector
+from arbiter.pipeline import Arbiter
 from arbiter.qds_simulation.model import (
     ChannelParams,
+    Hypothesis,
+    _legit_cell_probabilities,
     estimate_visibility,
     visibility_ci,
-    _legit_cell_probabilities,
 )
 from arbiter.qds_simulation.protocol import (
     DriftConfig,
     SessionConfig,
     simulate_session,
 )
-from arbiter.detection.unified import UnifiedDetector, UnifiedVerdict
-from arbiter.pipeline import Arbiter
-from arbiter.qds_simulation.model import Hypothesis
 
 
 def test_legit_cell_probabilities():
@@ -58,7 +58,7 @@ def test_estimate_visibility_low_counts():
 def test_visibility_ci():
     """Test profile likelihood confidence interval."""
     v_true = 0.92
-    params = ChannelParams(visibility=v_true)
+    # params = ChannelParams(visibility=v_true)
     n = np.array([300, 300, 300, 300, 300, 300])
     p = _legit_cell_probabilities(v_true)
     k = np.round(n * p).astype(int)
@@ -131,7 +131,7 @@ def test_unified_detector_nuisance_parameter():
     assert verdict.v_hat is not None
     assert abs(verdict.v_hat - 0.88) < 0.05
     # Should not reject (FAR controlled at worst-case v)
-    assert verdict.rejected == False
+    assert not verdict.rejected
 
 
 def test_far_control_under_drift():
@@ -234,8 +234,9 @@ def test_v_hat_accuracy():
 
 def test_arbiter_pipeline_v_estimates():
     """Test that Arbiter pipeline passes through visibility estimates."""
-    from arbiter.audit_ledger import AuditLedger, LedgerKeys
     from tempfile import TemporaryDirectory
+
+    from arbiter.audit_ledger import AuditLedger, LedgerKeys
 
     with TemporaryDirectory() as tmpdir:
         keys = LedgerKeys.generate(hbs_height=4)

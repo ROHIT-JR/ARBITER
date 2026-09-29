@@ -166,7 +166,7 @@ class UnifiedDetector:
         v_grid = np.linspace(self.v_min, self.v_max, 20)
 
         # Precompute alternative likelihoods for all (h,θ,v) combinations
-        from arbiter.qds_simulation.model import _legit_cell_probabilities, cell_probabilities, ALL_OR_NOTHING, ATTACKS
+        from arbiter.qds_simulation.model import ALL_OR_NOTHING, ATTACKS, _legit_cell_probabilities, cell_probabilities
         components = [(h, float(t)) for h in ATTACKS for t in ((1.0,) if h in ALL_OR_NOTHING else self.theta_grid)]
 
         # Compute max_{h,θ,v} L(h,θ,v) for each sample
