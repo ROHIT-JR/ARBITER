@@ -19,9 +19,10 @@ test.describe('Mobile viewport (375px)', () => {
     const count = await labels.count();
     expect(count).toBeGreaterThan(0);
     
-    // Run a quick session to check verdict panel
+    // Run a quick session to check verdict panel (pinned seed for determinism)
     await page.getByLabel(/scenario/i).selectOption('legitimate');
     await page.getByLabel(/rounds/i).fill('100');
+    await page.getByLabel(/seed/i).fill('7');
     await page.getByRole('button', { name: /run session/i }).click();
     
     await expect(page.locator('span.badge', { hasText: /ACCEPT/i })).toBeVisible({ timeout: 30000 });
