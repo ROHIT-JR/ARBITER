@@ -75,9 +75,19 @@ class SessionRequest(BaseModel):
     seed: int | None = None
     message: str = "transfer 100 units to account 42"
     trajectory: bool = Field(False, description="include the sequential log-evidence trajectory")
-    v_min: float | None = Field(None, ge=0.5, le=1.0, description="minimum visibility for nuisance parameter mode")
-    v_max: float | None = Field(None, ge=0.5, le=1.0, description="maximum visibility for nuisance parameter mode")
-    drift: dict | None = Field(None, description="drift config: type, true_visibility/v_start/v_end/v_before/v_after/change_round")
+    v_min: float | None = Field(
+        None, ge=0.5, le=1.0, description="minimum visibility for nuisance parameter mode"
+    )
+    v_max: float | None = Field(
+        None, ge=0.5, le=1.0, description="maximum visibility for nuisance parameter mode"
+    )
+    drift: dict | None = Field(
+        None,
+        description=(
+            "drift config: type, "
+            "true_visibility/v_start/v_end/v_before/v_after/change_round"
+        ),
+    )
 
 
 class CertificateRequest(BaseModel):
@@ -279,7 +289,12 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
             raise HTTPException(422, "use POST /jobs for Qiskit sessions above 5000 rounds")
         return _run_session(req)
 
-    def _verify(t: Transcript, trajectory: bool = False, v_min: float | None = None, v_max: float | None = None) -> dict:
+    def _verify(
+    t: Transcript,
+    trajectory: bool = False,
+    v_min: float | None = None,
+    v_max: float | None = None,
+) -> dict:
         try:
             with ledger_lock:
                 # Create Arbiter with v_min/v_max if provided

@@ -324,7 +324,12 @@ def _neg_log_likelihood(v: float, n: np.ndarray, k: np.ndarray, protocol: str = 
     return -np.sum(k * np.log(p) + (n - k) * np.log(1 - p))
 
 
-def estimate_visibility(n: np.ndarray, k: np.ndarray, params: ChannelParams | None = None, protocol: str = "prf") -> float:
+def estimate_visibility(
+    n: np.ndarray,
+    k: np.ndarray,
+    params: ChannelParams | None = None,
+    protocol: str = "prf",
+) -> float:
     """MLE of Werner visibility v from per-cell counts under H0 (legitimate).
 
     Maximizes the joint log-likelihood over all 6 cells:

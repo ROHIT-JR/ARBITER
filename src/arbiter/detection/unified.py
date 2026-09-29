@@ -144,7 +144,13 @@ class UnifiedDetector:
         logalt = np.log(np.clip(np.stack([1 - alt, alt]), 1e-300, None))
         return k @ logalt[1].T + (n - k) @ logalt[0].T
 
-    def _glr(self, n: np.ndarray, k: np.ndarray, p0: np.ndarray | None = None, alt: np.ndarray | None = None) -> np.ndarray:
+    def _glr(
+        self,
+        n: np.ndarray,
+        k: np.ndarray,
+        p0: np.ndarray | None = None,
+        alt: np.ndarray | None = None,
+    ) -> np.ndarray:
         return self._llalt(n, k, alt).max(axis=-1) - self._ll0(n, k, p0)
 
     def _glr_with_v(self, n: np.ndarray, k: np.ndarray) -> np.ndarray:
@@ -172,7 +178,10 @@ class UnifiedDetector:
         # Compute max_{h,θ,v} L(h,θ,v) for each sample
         max_alt_ll = -np.inf
         for v in v_grid:
-            alt_v = np.array([cell_probabilities(h, t, ChannelParams(visibility=v), self.protocol) for h, t in components])
+            alt_v = np.array([
+                cell_probabilities(h, t, ChannelParams(visibility=v), self.protocol)
+                for h, t in components
+            ])
             logalt_v = np.log(np.clip(np.stack([1 - alt_v, alt_v]), 1e-300, None))
             llalt = k @ logalt_v[1].T + (n - k) @ logalt_v[0].T
             max_alt_ll = np.maximum(max_alt_ll, llalt.max(axis=-1))
@@ -272,9 +281,17 @@ class UnifiedDetector:
             alpha=self.alpha,
             attribution=attribution,
             posterior=posterior,
-            theta_hat={h.value: self.components[idx[self._llalt(n, k)[idx].argmax()]][1] for h, idx in self.groups.items()},
-            loglik={Hypothesis.LEGITIMATE.value: float(self._ll0(n, k))}
-            | {h.value: float(self._llalt(n, k)[idx].max()) for h, idx in self.groups.items()},
+            theta_hat={
+                h.value: self.components[idx[self._llalt(n, k)[idx].argmax()]][1]
+                for h, idx in self.groups.items()
+            },
+            loglik={
+                Hypothesis.LEGITIMATE.value: float(self._ll0(n, k))
+            }
+            | {
+                h.value: float(self._llalt(n, k)[idx].max())
+                for h, idx in self.groups.items()
+            },
             v_hat=v_hat,
             v_ci=v_ci,
             v_design=self.params.visibility,

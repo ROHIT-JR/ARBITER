@@ -71,7 +71,7 @@ def test_visibility_ci():
 def test_drift_config_static_offset():
     """Test static offset drift configuration."""
     config = SessionConfig(
-        n_rounds=100,
+        n_rounds=500,
         params=ChannelParams(visibility=0.92),
         drift=DriftConfig(type="static_offset", true_visibility=0.88)
     )
@@ -85,7 +85,7 @@ def test_drift_config_static_offset():
 def test_drift_config_linear():
     """Test linear drift configuration."""
     config = SessionConfig(
-        n_rounds=100,
+        n_rounds=500,
         params=ChannelParams(visibility=0.92),
         drift=DriftConfig(type="linear_drift", v_start=0.92, v_end=0.85)
     )
