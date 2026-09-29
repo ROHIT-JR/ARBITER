@@ -40,6 +40,22 @@ From `python examples/attack_sweep.py --sessions 200`: 1200 rounds per session, 
 
 **Partial attacks:** the diagonal is 1.00 at θ = 0.3 and 0.81–0.92 at θ = 0.1. At θ = 0.1 only 10% of rounds are attacked, so these are deliberately weak attacks. The legitimate false-alarm rate stays at the 1–2% implied by α plus the CHSH flag.
 
+## QDS protocol security bounds
+
+For the BB84 state-elimination QDS mode, ARBITER separately reports finite-size
+Hoeffding bounds for forgery, repudiation, and honest abort. These are
+stand-alone collective-attack bounds with an analytical ideal-symmetrisation
+assumption—not claims about the detector's accuracy or a composable proof. See
+[the derivation and assumptions](docs/math-derivations.md#12-finite-size-protocol-security).
+
+The following table is generated with `python examples/security_bounds.py`.
+
+| trapped-ion preset | visibility | p_err | minimum L for ε = 10⁻¹⁰ |
+|---|---:|---:|---:|
+| state_of_the_art_2025 | 0.999187 | 0.000203 | 6,843 |
+| prototype | 0.994482 | 0.001379 | 6,908 |
+| conservative | 0.857638 | 0.035590 | 9,288 |
+
 **The limits of what any detector could do:**
 
 | attack | quantum Chernoff ξ_Q | ARBITER's measurement ξ_M | efficiency |
@@ -149,6 +165,7 @@ print(v.reasons)
 | `GET /sessions?limit=` and `GET /sessions/{id}` | list persisted sessions or retrieve one stored session and its latest verdict |
 | `GET /model` | each hypothesis's per-cell outcome probabilities |
 | `GET /bounds` | Helstrom / quantum-Chernoff limits against the achieved exponents |
+| `GET /security?epsilon=&visibility=` | finite-size QDS forgery, repudiation and robustness bounds plus minimum signature length |
 | `GET /compare?theta=&sessions=&seed=` | unified-vs-fixed confusion matrices, false alarms, detection and attribution rates |
 | `GET /ledger`, `/ledger/{i}`, `/ledger/verify` | inspect and verify the audit chain |
 | `GET /noise/presets` | trapped-ion presets and the channel parameters they induce |

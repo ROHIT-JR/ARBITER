@@ -10,21 +10,20 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime
-from importlib.resources import files
 from pathlib import Path
 from threading import Lock
 from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from arbiter import __version__
 from arbiter.api.jobs import JobRunner
 from arbiter.api.security import Security
-from arbiter.audit_ledger import AuditLedger, EpochManager, LedgerKeys
-from arbiter.detection import attack_bounds, compare_detectors
+from arbiter.audit_ledger import AuditLedger, LedgerKeys
+from arbiter.detection import attack_bounds, compare_detectors, minimum_signature_parameters
+from arbiter.detection.security import security_curve
 from arbiter.noise import PRESETS
 from arbiter.pipeline import Arbiter
 from arbiter.qds_simulation import (
@@ -40,32 +39,6 @@ from arbiter.qds_simulation import (
 from arbiter.storage import SQLiteStorage
 
 
-def dashboard_dist() -> Path:
-    """Return the installed dashboard resource directory, with a test override."""
-    configured = os.environ.get("ARBITER_DASHBOARD_DIR")
-    if configured:
-        return Path(configured)
-    return Path(str(files("arbiter").joinpath("dashboard")))
-
-
-class ApiPrefixMiddleware:
-    """Let the static dashboard keep its stable ``/api`` development contract.
-
-    Existing API consumers continue using unprefixed paths; only the dashboard
-    alias is rewritten before FastAPI performs its normal route matching.
-    """
-
-    def __init__(self, app):
-        self.app = app
-
-    async def __call__(self, scope, receive, send):
-        if scope["type"] == "http" and scope["path"].startswith("/api/"):
-            scope = dict(scope)
-            scope["path"] = scope["path"][4:]
-            scope["raw_path"] = scope["path"].encode()
-        await self.app(scope, receive, send)
-
-
 class SessionRequest(BaseModel):
     hypothesis: Hypothesis = Hypothesis.LEGITIMATE
     theta: float = Field(1.0, gt=0, le=1, description="fraction of rounds attacked (impersonation is always 1)")
@@ -75,12 +48,6 @@ class SessionRequest(BaseModel):
     seed: int | None = None
     message: str = "transfer 100 units to account 42"
     trajectory: bool = Field(False, description="include the sequential log-evidence trajectory")
-    v_min: float | None = Field(None, ge=0.5, le=1.0, description="minimum visibility for nuisance parameter mode")
-    v_max: float | None = Field(None, ge=0.5, le=1.0, description="maximum visibility for nuisance parameter mode")
-    drift: dict | None = Field(
-        None,
-        description=("drift config: type, true_visibility/v_start/v_end/v_before/v_after/change_round"),
-    )
 
 
 class CertificateRequest(BaseModel):
@@ -140,51 +107,12 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
             raise ValueError(f"unknown ARBITER_NOISE_PRESET {preset!r}; choose from {sorted(PRESETS)}")
         params = PRESETS[preset].channel_params()
     key_path = data_dir / "ledger_keys.json"
-    pending_key_path = key_path.with_name(key_path.name + ".next")
-    passphrase = os.environ.get("ARBITER_KEY_PASSPHRASE")
-    # Tests are isolated temporary data directories; production requires an
-    # explicit development override rather than silently writing a secret.
-    allow_plaintext = os.environ.get("ARBITER_ALLOW_PLAINTEXT_KEYS") == "1" or "PYTEST_CURRENT_TEST" in os.environ
-    if key_path.exists() and passphrase:
-        keys = LedgerKeys.load_encrypted(key_path, passphrase)
-    elif key_path.exists() and allow_plaintext:
+    if key_path.exists():
         keys = LedgerKeys.load(key_path)
-    elif key_path.exists():
-        raise ValueError("refusing plaintext ledger keys; set ARBITER_KEY_PASSPHRASE or ARBITER_ALLOW_PLAINTEXT_KEYS=1")
     else:
         keys = LedgerKeys.generate()
-        if passphrase:
-            keys.save_encrypted(key_path, passphrase)
-        elif allow_plaintext:
-            keys.save(key_path)
-        else:
-            raise ValueError("ARBITER_KEY_PASSPHRASE is required to create production ledger keys")
-
-    def open_ledger(active_keys: LedgerKeys) -> AuditLedger:
-        return AuditLedger(
-            active_keys,
-            data_dir / "ledger.jsonl",
-            EpochManager(active_keys.hbs.height),
-            require_passphrase=not allow_plaintext,
-            key_store_path=key_path,
-            key_passphrase=passphrase,
-        )
-
-    try:
-        ledger = open_ledger(keys)
-    except ValueError:
-        # A crash after writing the transition but before replacing the key
-        # file leaves the incoming keypair in the pending file. The ledger's
-        # verified transition determines whether that keypair is active.
-        if not pending_key_path.exists():
-            raise
-        pending_keys = (
-            LedgerKeys.load_encrypted(pending_key_path, passphrase)
-            if passphrase
-            else LedgerKeys.load(pending_key_path, allow_plaintext=allow_plaintext)
-        )
-        ledger = open_ledger(pending_keys)
-        pending_key_path.replace(key_path)
+        keys.save(key_path)
+    ledger = AuditLedger(keys, data_dir / "ledger.jsonl")
     storage = SQLiteStorage(data_dir / "arbiter.db")
     arbiter = Arbiter(params, ledger=ledger, nonces=storage.nonce_registry())
     arbiters = {
@@ -213,7 +141,6 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
     app.add_middleware(
         CORSMiddleware, allow_origins=origins, allow_methods=["*"], allow_headers=["*"], allow_credentials=False
     )
-    app.add_middleware(ApiPrefixMiddleware)
 
     @app.get("/health")
     def health():
@@ -225,13 +152,6 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
             "noise_preset": preset,
             "demo_mode": demo_mode,
         }
-
-    @app.get("/demo/scenarios")
-    def demo_scenarios():
-        """Named, seeded local-demo actions plus an instant cached accuracy view."""
-        from arbiter.demo import demo_catalog
-
-        return demo_catalog()
 
     @app.get("/model")
     def model(theta: float = Query(1.0, gt=0, le=1)):
@@ -253,6 +173,23 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
         """Helstrom / quantum-Chernoff limits vs what ARBITER's measurements achieve."""
         return attack_bounds(theta, SessionConfig(params=arbiter.params), epsilon)
 
+    @app.get("/security")
+    def protocol_security(
+        epsilon: float = Query(1e-10, gt=0, lt=1),
+        visibility: float | None = Query(None, gt=0, le=1),
+    ):
+        """Finite-size QDS security parameters under the stated collective-attack assumptions."""
+        channel = (
+            arbiter.params
+            if visibility is None
+            else ChannelParams(visibility=visibility, storage_visibility=arbiter.params.storage_visibility)
+        )
+        try:
+            parameters = minimum_signature_parameters(epsilon, channel)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return parameters.to_dict() | {"visibility": channel.visibility, "curve": security_curve(parameters, channel)}
+
     @app.get("/compare")
     def compare(  # noqa: B008
         theta: float = Query(1.0, gt=0, le=1),
@@ -264,18 +201,10 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
         return compare_detectors(theta, sessions, seed, params=arbiter.params)
 
     def _run_session(req: SessionRequest):
-        from arbiter.qds_simulation.protocol import DriftConfig
-        from arbiter.qds_simulation.protocol import SessionConfig as ProtoSessionConfig
-
-        config = ProtoSessionConfig(
-            n_rounds=req.n_rounds,
-            params=arbiter.params,
-            protocol=req.protocol,
-            drift=DriftConfig(**req.drift) if req.drift else None,
-        )
+        config = SessionConfig(n_rounds=req.n_rounds, params=arbiter.params, protocol=req.protocol)
         t = simulate_session(req.hypothesis, req.theta, config, req.message, seed=req.seed, backend=req.backend)
         storage.save_session(t, seed=req.seed)
-        return _verify(t, req.trajectory, req.v_min, req.v_max)
+        return _verify(t, req.trajectory)
 
     @app.post("/sessions")
     def run_session(req: SessionRequest, _=Depends(security.expensive)):  # noqa: B008
@@ -283,27 +212,10 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
             raise HTTPException(422, "use POST /jobs for Qiskit sessions above 5000 rounds")
         return _run_session(req)
 
-    def _verify(
-        t: Transcript,
-        trajectory: bool = False,
-        v_min: float | None = None,
-        v_max: float | None = None,
-    ) -> dict:
+    def _verify(t: Transcript, trajectory: bool = False) -> dict:
         try:
             with ledger_lock:
-                # Create Arbiter with v_min/v_max if provided
-                if v_min is not None or v_max is not None:
-                    arbiter_instance = Arbiter(
-                        arbiter.params,
-                        ledger=ledger,
-                        nonces=storage.nonce_registry(),
-                        protocol=t.protocol,
-                        v_min=v_min,
-                        v_max=v_max,
-                    )
-                    result = arbiter_instance.verify(t).to_dict(trajectory=trajectory)
-                else:
-                    result = arbiters[t.protocol].verify(t).to_dict(trajectory=trajectory)
+                result = arbiters[t.protocol].verify(t).to_dict(trajectory=trajectory)
             storage.save_verdict(t.session_id, result)
             return result
         except ValueError as exc:  # hash-based one-time keys exhausted
@@ -375,16 +287,6 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
         if not 0 <= index < len(ledger.entries):
             raise HTTPException(404, "no such entry")
         return ledger.entries[index]
-
-    @app.post("/ledger/rotate")
-    def ledger_rotate(_=Depends(security.expensive)):  # noqa: B008
-        """Rotate before HBS exhaustion; transition remains audit-verifiable."""
-        with ledger_lock:
-            try:
-                entry = ledger.rotate_now()
-            except ValueError as exc:
-                raise HTTPException(409, str(exc)) from exc
-            return {"ok": True, "entry": entry, "epoch": ledger.keys.epoch_id}
 
     def _require_demo_mode() -> None:
         if not demo_mode:
@@ -500,7 +402,4 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
                 raise HTTPException(422, str(exc)) from exc
         return reports
 
-    static_dir = dashboard_dist()
-    if (static_dir / "index.html").is_file():
-        app.mount("/", StaticFiles(directory=static_dir, html=True), name="dashboard")
     return app
