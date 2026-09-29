@@ -1,4 +1,4 @@
-from arbiter.pki_risk_scoring.cbom import certificates_to_cbom, cbom_to_json
+from arbiter.pki_risk_scoring.cbom import cbom_to_json, certificates_to_cbom
 from arbiter.pki_risk_scoring.certificates import CertificateReport, assess_certificates
 from arbiter.pki_risk_scoring.chain import (
     ChainLinkReport,
