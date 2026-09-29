@@ -24,13 +24,6 @@ plugins:
   - search
   - mkdocstrings:
       default_handler: python
-      handlers:
-        python:
-          import_statement: true
-          show_source: true
-          show_docstring_description: true
-  - jupyter:
-      ignore_h1_titles: true
 
 markdown_extensions:
   - pymdownx.arithmatex:
