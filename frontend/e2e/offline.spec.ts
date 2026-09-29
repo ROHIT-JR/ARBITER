@@ -12,9 +12,15 @@ test.describe('API offline state', () => {
     await page.getByLabel(/rounds/i).fill('100');
     await page.getByRole('button', { name: /run session/i }).click();
     
-    // Should show the API error. Two role=alert regions render offline (the
-    // run error plus AccuracyPanel's own error box), so scope to the run error.
-    await expect(page.locator('p.error', { hasText: /Cannot reach the ARBITER API/i })).toBeVisible({
+    // Should show the API error. Several panels independently fetch and
+    // render the same UNREACHABLE text in a plain <p class="error">
+    // (AccuracyPanel, BoundsTable, LedgerPanel, DemoMenu), so a bare
+    // p.error match is ambiguous. Only the session-run error's own <p>
+    // carries role="alert" directly (the others put role="alert" on a
+    // *wrapping* element, not the <p> itself) -- scope to that.
+    await expect(
+      page.locator('p.error[role="alert"]', { hasText: /Cannot reach the ARBITER API/i })
+    ).toBeVisible({
       timeout: 10000,
     });
   });
