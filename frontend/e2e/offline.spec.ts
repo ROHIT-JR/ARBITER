@@ -8,8 +8,8 @@ test.describe('API offline state', () => {
     await page.route('**/api/**', route => route.abort('failed'));
     
     // Try to run a session
-    await page.getByLabelText(/scenario/i).selectOption('legitimate');
-    await page.getByLabelText(/rounds/i).fill('100');
+    await page.getByLabel(/scenario/i).selectOption('legitimate');
+    await page.getByLabel(/rounds/i).fill('100');
     await page.getByRole('button', { name: /run session/i }).click();
     
     // Should show offline message

@@ -8,13 +8,13 @@ test.describe('Forgery session', () => {
     await expect(page.getByRole('button', { name: /run session/i })).toBeVisible();
     
     // Select forgery hypothesis
-    await page.getByLabelText(/scenario/i).selectOption('forgery');
+    await page.getByLabel(/scenario/i).selectOption('forgery');
     
     // Set rounds
-    await page.getByLabelText(/rounds/i).fill('1200');
+    await page.getByLabel(/rounds/i).fill('1200');
     
     // Select backend
-    await page.getByLabelText(/backend/i).selectOption('analytic');
+    await page.getByLabel(/backend/i).selectOption('analytic');
     
     // Run session
     await page.getByRole('button', { name: /run session/i }).click();

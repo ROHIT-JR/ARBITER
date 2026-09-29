@@ -17,8 +17,8 @@ test.describe('Accessibility', () => {
     await page.goto('/');
 
     // Run a session to show verdict
-    await page.getByLabelText(/scenario/i).selectOption('forgery');
-    await page.getByLabelText(/rounds/i).fill('100');
+    await page.getByLabel(/scenario/i).selectOption('forgery');
+    await page.getByLabel(/rounds/i).fill('100');
     await page.getByRole('button', { name: /run session/i }).click();
 
     await expect(page.getByText(/REJECT/i)).toBeVisible({ timeout: 30000 });

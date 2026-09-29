@@ -5,9 +5,9 @@ test.describe('Resubmit replay', () => {
     await page.goto('/');
     
     // Run a session first
-    await page.getByLabelText(/scenario/i).selectOption('forgery');
-    await page.getByLabelText(/rounds/i).fill('800');
-    await page.getByLabelText(/backend/i).selectOption('analytic');
+    await page.getByLabel(/scenario/i).selectOption('forgery');
+    await page.getByLabel(/rounds/i).fill('800');
+    await page.getByLabel(/backend/i).selectOption('analytic');
     await page.getByRole('button', { name: /run session/i }).click();
     
     // Wait for verdict

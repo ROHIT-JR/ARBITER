@@ -5,9 +5,9 @@ test.describe('Ledger verification', () => {
     await page.goto('/');
     
     // Run a session to generate ledger entry
-    await page.getByLabelText(/scenario/i).selectOption('legitimate');
-    await page.getByLabelText(/rounds/i).fill('100');
-    await page.getByLabelText(/backend/i).selectOption('analytic');
+    await page.getByLabel(/scenario/i).selectOption('legitimate');
+    await page.getByLabel(/rounds/i).fill('100');
+    await page.getByLabel(/backend/i).selectOption('analytic');
     await page.getByRole('button', { name: /run session/i }).click();
     
     // Wait for verdict

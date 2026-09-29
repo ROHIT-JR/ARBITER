@@ -15,13 +15,13 @@ test.describe('Mobile viewport (375px)', () => {
     await page.goto('/');
     
     // Check form labels are visible and not overlapping
-    const labels = page.getByRole('label');
+    const labels = page.locator('label');
     const count = await labels.count();
     expect(count).toBeGreaterThan(0);
     
     // Run a quick session to check verdict panel
-    await page.getByLabelText(/scenario/i).selectOption('legitimate');
-    await page.getByLabelText(/rounds/i).fill('100');
+    await page.getByLabel(/scenario/i).selectOption('legitimate');
+    await page.getByLabel(/rounds/i).fill('100');
     await page.getByRole('button', { name: /run session/i }).click();
     
     await expect(page.getByText(/ACCEPT/i)).toBeVisible({ timeout: 30000 });
