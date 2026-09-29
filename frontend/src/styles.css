@@ -126,39 +126,18 @@ body {
   gap: 8px;
 }
 
-.demo-menu {
-  position: relative;
+.security-head,
+.security-summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
-.demo-menu summary {
-  cursor: pointer;
-  color: var(--accent);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.demo-menu[open] {
-  position: absolute;
-  z-index: 2;
-  top: 0;
-  right: 0;
-  width: min(340px, calc(100vw - 32px));
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
-}
-
-.demo-actions {
-  display: grid;
-  gap: 6px;
-}
-
-.demo-actions button {
-  text-align: left;
-  padding: 5px 8px;
-  font-size: 12px;
+.security-summary {
+  margin: 10px 0;
+  align-items: baseline;
 }
 
 .theme-toggle {

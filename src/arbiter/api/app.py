@@ -24,7 +24,8 @@ from arbiter import __version__
 from arbiter.api.jobs import JobRunner
 from arbiter.api.security import Security
 from arbiter.audit_ledger import AuditLedger, EpochManager, LedgerKeys
-from arbiter.detection import attack_bounds, compare_detectors
+from arbiter.detection import attack_bounds, compare_detectors, minimum_signature_parameters
+from arbiter.detection.security import security_curve
 from arbiter.noise import PRESETS
 from arbiter.pipeline import Arbiter
 from arbiter.qds_simulation import (
@@ -252,6 +253,23 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
     def bounds(theta: float = Query(1.0, gt=0, le=1), epsilon: float = Query(1e-6, gt=0, lt=1)):
         """Helstrom / quantum-Chernoff limits vs what ARBITER's measurements achieve."""
         return attack_bounds(theta, SessionConfig(params=arbiter.params), epsilon)
+
+    @app.get("/security")
+    def protocol_security(
+        epsilon: float = Query(1e-10, gt=0, lt=1),
+        visibility: float | None = Query(None, gt=0, le=1),
+    ):
+        """Finite-size QDS security parameters under the stated collective-attack assumptions."""
+        channel = (
+            arbiter.params
+            if visibility is None
+            else ChannelParams(visibility=visibility, storage_visibility=arbiter.params.storage_visibility)
+        )
+        try:
+            parameters = minimum_signature_parameters(epsilon, channel)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return parameters.to_dict() | {"visibility": channel.visibility, "curve": security_curve(parameters, channel)}
 
     @app.get("/compare")
     def compare(  # noqa: B008

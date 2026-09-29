@@ -6,6 +6,7 @@ import BoundsTable from "./components/BoundsTable";
 import DemoMenu from "./components/DemoMenu";
 import EvidenceChart from "./components/EvidenceChart";
 import LedgerPanel from "./components/LedgerPanel";
+import SecurityPanel from "./components/SecurityPanel";
 import SessionForm from "./components/SessionForm";
 import VerdictPanel from "./components/VerdictPanel";
 
@@ -126,6 +127,10 @@ export default function App() {
       <main className="grid">
         <section className="card span-3 accuracy-card">
           <AccuracyPanel demoCache={demoCache} />
+        </section>
+
+        <section className="card span-3">
+          <SecurityPanel />
         </section>
 
         <section className="card">

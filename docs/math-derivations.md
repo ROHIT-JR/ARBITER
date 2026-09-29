@@ -67,6 +67,53 @@ cannot improve it.  These identities are implemented by
 `use_mismatch_probability` and `qds_forgery_mismatch_rate` and checked against
 Aer in `test_qds_use_aer_matches_density_matrix_model`.
 
+### 1.2 Finite-size protocol security
+
+The detector's false-alarm control is not a QDS signature-security parameter.
+For `protocol="qds"`, `detection/security.py` reports separate, conservative
+stand-alone upper bounds for a signature of length `L`. Let `p_err` be the
+honest USE mismatch probability computed above, and let `p_f = 1/4` be the
+keyless-forger mismatch probability. Direct authentication accepts below
+`s_a L` mismatches and forwarded verification accepts below `s_v L`, with
+
+```
+p_err < s_a < s_v < p_f.
+```
+
+Using the one-sided Hoeffding tail, the forger's chance of passing verification
+is
+
+```
+P_forge <= exp[-2 (p_f - s_v)^2 L].
+```
+
+This is Eq. (5) of Wallden, Dunjko, Kent and Andersson, *Phys. Rev. A* **91**,
+042304 (2015), at its no-abort parameter `r = 0`: their exponent reduces to
+`-2 L (1/4-s_v)^2`. Robustness is the two-sided honest tail,
+
+```
+P_rob <= 2 exp[-2 (s_a-p_err)^2 L].
+```
+
+For repudiation ARBITER uses the ideal random half-exchange symmetrisation
+model analytically, because the explicit exchange workflow is not yet in this
+repository. The BB84 USE success probability is `p_USD=1/2`, so Eq. (2) of
+Dunjko, Wallden and Andersson, *Phys. Rev. Lett.* **112**, 040502 (2014)
+gives
+
+```
+P_rep <= exp[-p_USD^2 (s_v-s_a)^2 L / 2]
+       = exp[-(s_v-s_a)^2 L / 8].
+```
+
+The implementation searches the admissible threshold interval and solves the
+three exponential inequalities for the smallest integer `L` with
+`max(P_forge, P_rep, P_rob) <= epsilon`. This is only a finite-size Hoeffding,
+collective-attack, stationary-channel, one-bit **stand-alone** calculation. It
+is not a composable proof, does not cover coherent attacks, and does not claim
+that an unimplemented recipient-exchange protocol has been executed. The API
+returns these assumptions with every result.
+
 ## 2. Observation model
 
 The verifier's observations fall into six Bernoulli cells: signature mismatch, freshness mismatch, and four CHSH-setting cells. For hypothesis `h` at strength `θ`:

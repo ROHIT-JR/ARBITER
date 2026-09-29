@@ -1,0 +1,157 @@
+{
+  "keys": [
+    {
+      "key_id": "ssh-rsa-user-admin",
+      "key_type": "RSA",
+      "key_size": 2048,
+      "source": "ssh_authorized_keys",
+      "source_description": "SSH key for admin user (user@example.com) on prod systems",
+      "created_date": "2022-06-15T00:00:00Z",
+      "expiry_date": null,
+      "protection_years_after_expiry": 0.0,
+      "metadata": {
+        "owner": "admin@example.com",
+        "environment": "production",
+        "rotation_status": "needs_rotation"
+      }
+    },
+    {
+      "key_id": "ssh-ed25519-deploy",
+      "key_type": "Ed25519",
+      "key_size": 255,
+      "source": "ssh_authorized_keys",
+      "source_description": "SSH key for CI/CD deployment pipeline",
+      "created_date": "2024-01-10T00:00:00Z",
+      "expiry_date": "2027-01-10T00:00:00Z",
+      "protection_years_after_expiry": 0.0,
+      "metadata": {
+        "owner": "ci-system",
+        "environment": "production",
+        "rotation_status": "current"
+      }
+    },
+    {
+      "key_id": "ssh-ecdsa-host-web01",
+      "key_type": "ECDSA",
+      "key_size": 256,
+      "source": "ssh_host_key",
+      "source_description": "SSH host key for web-prod-01.example.com (ECDSA-SHA2-NISTP256)",
+      "created_date": "2023-03-20T00:00:00Z",
+      "expiry_date": null,
+      "protection_years_after_expiry": 0.0,
+      "metadata": {
+        "hostname": "web-prod-01.example.com",
+        "environment": "production",
+        "os": "ubuntu-22.04"
+      }
+    },
+    {
+      "key_id": "ssh-rsa-host-db01",
+      "key_type": "RSA",
+      "key_size": 2048,
+      "source": "ssh_host_key",
+      "source_description": "SSH host key for db-prod-01.example.com (RSA legacy)",
+      "created_date": "2019-11-05T00:00:00Z",
+      "expiry_date": null,
+      "protection_years_after_expiry": 0.0,
+      "metadata": {
+        "hostname": "db-prod-01.example.com",
+        "environment": "production",
+        "os": "centos-7",
+        "note": "Legacy system - consider rotation"
+      }
+    },
+    {
+      "key_id": "code-sign-ecdsa-app",
+      "key_type": "ECDSA",
+      "key_size": 256,
+      "source": "code_signing_cert",
+      "source_description": "Code-signing certificate for application releases (ECDSA P-256)",
+      "created_date": "2023-06-01T00:00:00Z",
+      "expiry_date": "2026-06-01T00:00:00Z",
+      "protection_years_after_expiry": 10.0,
+      "metadata": {
+        "organization": "Example Corp",
+        "purpose": "software_release_signing",
+        "cn": "codesign.example.com"
+      }
+    },
+    {
+      "key_id": "code-sign-rsa-legacy",
+      "key_type": "RSA",
+      "key_size": 2048,
+      "source": "code_signing_cert",
+      "source_description": "Legacy code-signing certificate for archived software (RSA-2048 PSS)",
+      "created_date": "2020-01-15T00:00:00Z",
+      "expiry_date": "2025-01-15T00:00:00Z",
+      "protection_years_after_expiry": 10.0,
+      "metadata": {
+        "organization": "Example Corp",
+        "purpose": "software_release_signing",
+        "cn": "codesign-legacy.example.com",
+        "status": "active_but_aging"
+      }
+    },
+    {
+      "key_id": "pqc-ml-dsa-65-future",
+      "key_type": "ML-DSA-65",
+      "key_size": 2448,
+      "source": "code_signing_cert",
+      "source_description": "Post-quantum code-signing certificate (ML-DSA-65 from FIPS 204)",
+      "created_date": "2025-01-01T00:00:00Z",
+      "expiry_date": "2030-01-01T00:00:00Z",
+      "protection_years_after_expiry": 10.0,
+      "metadata": {
+        "organization": "Example Corp",
+        "purpose": "post_quantum_signing",
+        "cn": "codesign-pqc.example.com",
+        "status": "future_deployment"
+      }
+    },
+    {
+      "key_id": "ssh-sk-ecdsa-hardware",
+      "key_type": "sk-ecdsa-sha2-nistp256",
+      "key_size": 256,
+      "source": "ssh_authorized_keys",
+      "source_description": "FIDO2 hardware security key for privileged access",
+      "created_date": "2024-06-01T00:00:00Z",
+      "expiry_date": null,
+      "protection_years_after_expiry": 0.0,
+      "metadata": {
+        "owner": "senior-engineer",
+        "hardware": "yubikey-5",
+        "mfa_enabled": true
+      }
+    },
+    {
+      "key_id": "tls-rsa-legacy-internal",
+      "key_type": "RSA",
+      "key_size": 2048,
+      "source": "tls_certificate",
+      "source_description": "Internal TLS certificate for legacy service (self-signed RSA-2048)",
+      "created_date": "2021-03-01T00:00:00Z",
+      "expiry_date": "2026-03-01T00:00:00Z",
+      "protection_years_after_expiry": 0.0,
+      "metadata": {
+        "service": "internal-api-v1",
+        "environment": "staging",
+        "status": "deprecated"
+      }
+    },
+    {
+      "key_id": "ssh-ed25519-backup-key",
+      "key_type": "Ed25519",
+      "key_size": 255,
+      "source": "ssh_authorized_keys",
+      "source_description": "Backup/emergency access SSH key stored offline",
+      "created_date": "2023-12-01T00:00:00Z",
+      "expiry_date": "2028-12-01T00:00:00Z",
+      "protection_years_after_expiry": 0.0,
+      "metadata": {
+        "owner": "sre-team",
+        "storage": "hardware_vault",
+        "access_level": "emergency_only"
+      }
+    }
+  ]
+}
