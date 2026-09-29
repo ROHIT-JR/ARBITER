@@ -1,6 +1,9 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Forgery session', () => {
+  // A 1200-round analytic session plus calibration Monte Carlo can exceed
+  // the 30s default on shared CI runners.
+  test.slow();
   test('run forgery session shows REJECT with correct attribution', async ({ page }) => {
     await page.goto('/');
     

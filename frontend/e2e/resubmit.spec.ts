@@ -1,6 +1,9 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Resubmit replay', () => {
+  // Two 800-round analytic sessions plus calibration Monte Carlo exceed the
+  // 30s default on shared CI runners.
+  test.slow();
   test('resubmit preserves session and evidence chart', async ({ page }) => {
     await page.goto('/');
     
