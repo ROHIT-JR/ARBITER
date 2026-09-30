@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { api, UNREACHABLE } from '@/api';
+import { api, UNREACHABLE } from './api';
 
 global.fetch = vi.fn();
 

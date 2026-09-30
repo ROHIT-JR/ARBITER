@@ -16,6 +16,8 @@ from arbiter.qds_simulation.multiparty import (
     MultiPartyParams,
     MultiPartySignature,
     PartyView,
+    simulate_recipient_forgery,
+    simulate_repudiation_attack,
 )
 
 
@@ -219,6 +221,68 @@ class TestMultiPartyProtocolCorrectness:
 
         # Verification should use both
         assert view.verifies(s_v=0.20), "Should verify with combined mismatches"
+
+
+class TestAttackSimulations:
+    """Cover the repudiation / recipient-forgery simulation entry points."""
+
+    def test_repudiation_attack_result_shape(self):
+        """Repudiation simulation returns the documented verdict keys."""
+        result = simulate_repudiation_attack(n_rounds=120, seed=7)
+        assert set(result) >= {
+            "alice_accepts",
+            "bob_accepts",
+            "charlie_verifies",
+            "alice_repudiates",
+            "transcript",
+            "use_symmetry",
+        }
+        assert result["use_symmetry"] is True
+        assert isinstance(result["alice_repudiates"], bool)
+
+    def test_repudiation_attack_deterministic(self):
+        """Same seed gives the same repudiation outcome."""
+        first = simulate_repudiation_attack(n_rounds=120, seed=21)
+        second = simulate_repudiation_attack(n_rounds=120, seed=21)
+        assert first["alice_repudiates"] == second["alice_repudiates"]
+        assert first["charlie_verifies"] == second["charlie_verifies"]
+
+    def test_repudiation_without_symmetry_path(self):
+        """The no-symmetrisation branch still produces per-party verdicts."""
+        result = simulate_repudiation_attack(n_rounds=120, seed=7, use_symmetry=False)
+        assert result["use_symmetry"] is False
+        assert isinstance(result["bob_accepts"], bool)
+        assert isinstance(result["charlie_verifies"], bool)
+
+    def test_recipient_forgery_result_shape(self):
+        """Recipient-forgery simulation returns the documented verdict keys."""
+        result = simulate_recipient_forgery(n_rounds=120, seed=7)
+        assert set(result) >= {
+            "alice_signature_valid",
+            "bob_accepts",
+            "charlie_detects_forgery",
+        }
+        assert isinstance(result["charlie_detects_forgery"], bool)
+
+    def test_recipient_forgery_deterministic(self):
+        """Same seed gives the same forgery-detection outcome."""
+        first = simulate_recipient_forgery(n_rounds=120, seed=21)
+        second = simulate_recipient_forgery(n_rounds=120, seed=21)
+        assert first["charlie_detects_forgery"] == second["charlie_detects_forgery"]
+
+    def test_consensus_helpers_on_populated_signature(self):
+        """all_accept/all_verify/consensus_verdict aggregate party verdicts."""
+        result = simulate_repudiation_attack(n_rounds=120, seed=7)
+        sig = result["transcript"]
+        assert isinstance(sig.all_accept(), bool)
+        assert isinstance(sig.all_verify(), bool)
+        assert sig.consensus_verdict() == (sig.all_accept(), sig.all_verify())
+
+    def test_shared_mismatch_rate_empty(self):
+        """Empty shared outcomes contribute a zero mismatch rate."""
+        view = PartyView(party_id=1, received_outcomes=np.array([0, 1, 0]))
+        assert view.mismatch_rate_from_shared(np.array([], dtype=int)) == 0.0
+        assert view.verifies(s_v=0.5)
 
 
 if __name__ == "__main__":
