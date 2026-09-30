@@ -15,13 +15,11 @@ the chain up to that point existed by that time.
 from __future__ import annotations
 
 import base64
-import json
 import os
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 
 @dataclass

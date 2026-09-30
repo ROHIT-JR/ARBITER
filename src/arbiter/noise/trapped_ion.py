@@ -63,40 +63,6 @@ class TrappedIonParams:
         if not 0 <= self.crosstalk_error < 1:
             raise ValueError("crosstalk_error must be in [0, 1)")
 
-    def visibility_budget(self) -> dict[str, float]:
-        """The factors whose product is the link's Werner visibility."""
-        gate = 1 - (1 - self.two_qubit_gate_fidelity) * 4 / 3
-        fid = (1 + math.exp(-2 * self.link_idle_seconds / self.t2_seconds)) / 2
-        idle = (4 * fid - 1) / 3
-        heating = 1 - self.heating_error_per_link * 4 / 3
-        single = (1 - 2 * (1 - self.single_qubit_gate_fidelity)) ** self.single_qubit_gates_per_round
-        spam = 1 - 2 * self.spam_error
-        return {
-            "ms_gate": gate,
-            "idle_dephasing": idle,
-            "motional_heating": heating,
-            "single_qubit_gates": single,
-            "spam": spam,
-        }
-
-    def visibility(self) -> float:
-        return math.prod(self.visibility_budget().values())
-
-    def storage_visibility(self) -> float:
-        return (1 + 2 * math.exp(-self.attacker_storage_seconds / self.t2_seconds)) / 3
-
-    def channel_params(self) -> ChannelParams:
-        return ChannelParams(visibility=self.visibility(), storage_visibility=self.storage_visibility())
-
-    def to_dict(self) -> dict:
-        return asdict(self) | {
-            "visibility_budget": self.visibility_budget(),
-            "visibility": self.visibility(),
-            "storage_visibility": self.storage_visibility(),
-        }
-
-
-
     def amplitude_damping_factor(self) -> float:
         """Amplitude damping (T1 relaxation) during idle time."""
         if self.link_idle_seconds == 0:
@@ -108,7 +74,7 @@ class TrappedIonParams:
         """Coherent MS gate over-rotation reduces fidelity systematically."""
         if self.ms_overrotation_rad == 0:
             return 1.0
-        angle_error_fid_loss = 2 * (self.ms_overrotation_rad ** 2)
+        angle_error_fid_loss = 2 * (self.ms_overrotation_rad**2)
         return max(0.5, 1.0 - angle_error_fid_loss)
 
     def crosstalk_factor(self) -> float:
@@ -184,9 +150,7 @@ class TrappedIonParams:
         }
         missing = required - set(data.keys())
         if missing:
-            raise ValueError(
-                f"Calibration data missing required fields: {', '.join(sorted(missing))}"
-            )
+            raise ValueError(f"Calibration data missing required fields: {', '.join(sorted(missing))}")
         params_dict = {
             "two_qubit_gate_fidelity": data["two_qubit_gate_fidelity"],
             "single_qubit_gate_fidelity": data["single_qubit_gate_fidelity"],
@@ -245,9 +209,7 @@ class TrappedIonParams:
             if field in data:
                 value = data[field]
                 if not isinstance(value, expected_type):
-                    errors.append(
-                        f"{field}: expected {expected_type}, got {type(value).__name__}"
-                    )
+                    errors.append(f"{field}: expected {expected_type}, got {type(value).__name__}")
                 elif constraint and not constraint(value):
                     errors.append(f"{field}: value {value} violates constraint")
         return len(errors) == 0, errors

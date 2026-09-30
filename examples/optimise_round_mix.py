@@ -14,11 +14,12 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-from scipy.optimize import minimize
+
 import numpy as np
+from scipy.optimize import minimize
 
 from arbiter.detection import attack_bounds
-from arbiter.qds_simulation import SessionConfig, Hypothesis
+from arbiter.qds_simulation import Hypothesis, SessionConfig
 
 
 @dataclass
@@ -38,6 +39,7 @@ def evaluate_mix(
     """Evaluate measurement efficiency at this round mix."""
     if params is None:
         from arbiter.qds_simulation import ChannelParams
+
         params = ChannelParams()
 
     # round_mix must have 3 or 4 elements (backward compat)
@@ -53,7 +55,10 @@ def evaluate_mix(
         return effs
     except Exception:
         # Return very poor efficiency on error (invalid mix)
-        return {h.value: -1.0 for h in [Hypothesis.FORGERY, Hypothesis.IMPERSONATION, Hypothesis.REPLAY, Hypothesis.CHANNEL_MANIPULATION]}
+        return {
+            h.value: -1.0
+            for h in [Hypothesis.FORGERY, Hypothesis.IMPERSONATION, Hypothesis.REPLAY, Hypothesis.CHANNEL_MANIPULATION]
+        }
 
 
 def optimize_round_mix(
@@ -74,6 +79,7 @@ def optimize_round_mix(
         OptimizationResult with the best found mix
     """
     from arbiter.qds_simulation import ChannelParams
+
     params = ChannelParams(visibility=visibility)
 
     def objective(x):
@@ -99,10 +105,9 @@ def optimize_round_mix(
         min_eff = min(effs.values())
         return -min_eff  # Negate for minimization
 
-
     # Try multiple starting points
     best_result = None
-    best_objective = float('inf')
+    best_objective = float("inf")
 
     # Generate initial guesses: vary the bell_fidelity fraction
     for bell_frac in np.linspace(0, 0.15, 8):
@@ -115,21 +120,7 @@ def optimize_round_mix(
             # Bounds: each in [0, 1]
             bounds = [(0, 1), (0, 1), (0, 1)]
 
-            # Constraint: CHSH >= min_chsh_fraction
-            from scipy.optimize import LinearConstraint
-            # chsh >= min_chsh_fraction
-            constraints = {
-                "type": "ineq",
-                "fun": lambda x: x[2] - min_chsh_fraction
-            }
-
-            result = minimize(
-                objective,
-                x0,
-                bounds=bounds,
-                method="L-BFGS-B",
-                options={"maxiter": 100}
-            )
+            result = minimize(objective, x0, bounds=bounds, method="L-BFGS-B", options={"maxiter": 100})
 
             if result.fun < best_objective:
                 best_objective = result.fun
@@ -163,16 +154,14 @@ def optimize_round_mix(
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(
-        description="Optimize ARBITER round_mix for measurement efficiency"
-    )
+    ap = argparse.ArgumentParser(description="Optimize ARBITER round_mix for measurement efficiency")
     ap.add_argument("--n_rounds", type=int, default=1200, help="Rounds per session")
     ap.add_argument("--visibility", type=float, default=0.92, help="Channel visibility")
     ap.add_argument("--min_chsh", type=float, default=0.15, help="Min CHSH fraction for pre-check")
     ap.add_argument("--target_eff", type=float, default=0.85, help="Target measurement efficiency")
     args = ap.parse_args()
 
-    print(f"Optimizing round_mix:")
+    print("Optimizing round_mix:")
     print(f"  n_rounds={args.n_rounds}")
     print(f"  visibility={args.visibility}")
     print(f"  min_chsh_fraction={args.min_chsh}")
@@ -195,7 +184,7 @@ def main() -> None:
     print(f"  CHSH:        {result.chsh_rounds:4d} rounds ({result.round_mix[2]:.1%})")
     print(f"  Bell Fidelity: {int(result.round_mix[3] * args.n_rounds):4d} rounds ({result.round_mix[3]:.1%})")
 
-    print(f"\nMeasurement Efficiency by Attack:")
+    print("\nMeasurement Efficiency by Attack:")
     for attack, eff in result.efficiencies.items():
         status = "✓" if eff >= args.target_eff else "✗"
         print(f"  {status} {attack:20s}: {eff:.3f}")
