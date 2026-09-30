@@ -6,10 +6,9 @@ from pathlib import Path
 import pytest
 
 from arbiter.pki_risk_scoring import (
-    RiskLevel,
     assess_certificates,
-    certificates_to_cbom,
     cbom_to_json,
+    certificates_to_cbom,
 )
 
 NOW = datetime(2026, 9, 27, tzinfo=timezone.utc)
@@ -188,9 +187,8 @@ def test_cbom_nist_quantum_security_level_for_pqc():
     pytest.importorskip("cryptography")
     pytest.importorskip("cryptography.hazmat.primitives.asymmetric.mldsa")
 
-    from cryptography.hazmat.primitives.asymmetric import mldsa
     from cryptography import x509
-    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import mldsa
     from cryptography.hazmat.primitives.serialization import Encoding
     from cryptography.x509.oid import NameOID
 
@@ -282,7 +280,7 @@ def test_cbom_marks_mosca_violated():
 def test_cbom_handles_multiple_certificates():
     """Verify CBOM correctly handles multiple certificates in a bundle."""
     pytest.importorskip("cryptography")
-    from cryptography.hazmat.primitives.asymmetric import rsa, ec, ed25519
+    from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 
     # Create a bundle with 3 different certificates
     certs_pem = b"".join(

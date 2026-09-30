@@ -76,6 +76,27 @@ export interface BoundRow {
   rounds_for_epsilon_measured: number;
 }
 
+export interface ProtocolSecurityBound {
+  length: number;
+  p_err: number;
+  p_forge_mismatch: number;
+  s_a: number;
+  s_v: number;
+  p_forge: number;
+  p_rep: number;
+  p_rob: number;
+  epsilon: number;
+  assumptions: string[];
+}
+
+export interface ProtocolSecurityResponse {
+  target_epsilon: number;
+  minimum_length: number;
+  visibility: number;
+  bounds: ProtocolSecurityBound;
+  curve: ProtocolSecurityBound[];
+}
+
 export type DetectorName = "unified" | "baseline" | "baseline_bonferroni";
 
 export interface AttackAccuracy {
@@ -164,6 +185,8 @@ export const api = {
     }),
   restoreLedger: () => call<LedgerReport>("/ledger/restore", { method: "POST" }),
   bounds: (theta: number) => call<BoundRow[]>(`/bounds?theta=${theta}`),
+  security: (epsilon = 1e-10, visibility?: number) =>
+    call<ProtocolSecurityResponse>(`/security?epsilon=${epsilon}${visibility === undefined ? "" : `&visibility=${visibility}`}`),
   compare: (theta: number, sessions: number, seed: number) =>
     call<ComparisonResult>(`/compare?theta=${theta}&sessions=${sessions}&seed=${seed}`),
   demoScenarios: () => call<DemoCatalog>("/demo/scenarios"),

@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from arbiter.qds_simulation.model import BB84_LABELS, Hypothesis, ChannelParams
+from arbiter.qds_simulation.model import Hypothesis
 from arbiter.qds_simulation.protocol import QDSDistribution, Transcript
 
 
@@ -97,9 +97,7 @@ class PartyView:
         combined_mismatches = self.mismatch_count_from_own()
         for shared_outcomes in self.shared_from_others.values():
             combined_mismatches += self.mismatch_count_from_shared(shared_outcomes)
-        total_observations = len(self.received_outcomes) + sum(
-            len(o) for o in self.shared_from_others.values()
-        )
+        total_observations = len(self.received_outcomes) + sum(len(o) for o in self.shared_from_others.values())
         if total_observations == 0:
             return True
         return combined_mismatches / total_observations < s_v
@@ -194,7 +192,7 @@ def simulate_repudiation_attack(
     params = params or MultiPartyParams()
     rng = np.random.default_rng(seed)
 
-    from arbiter.qds_simulation.protocol import simulate_session, SessionConfig
+    from arbiter.qds_simulation.protocol import SessionConfig, simulate_session
 
     config = SessionConfig(n_rounds=n_rounds)
 
@@ -283,7 +281,7 @@ def simulate_recipient_forgery(
     params = params or MultiPartyParams()
     rng = np.random.default_rng(seed)
 
-    from arbiter.qds_simulation.protocol import simulate_session, SessionConfig
+    from arbiter.qds_simulation.protocol import SessionConfig, simulate_session
 
     config = SessionConfig(n_rounds=n_rounds)
 
