@@ -217,10 +217,12 @@ tests/                per-attack fixtures, circuit/model agreement, false-alarm 
 | v0.3 | coherent and correlated trapped-ion errors, hybrid-certificate support in PKI scoring, robust tests against adaptive attacks |
 | v1.0 | calibration against real trapped-ion hardware data (collaborators welcome), technical report |
 
-## Contributing, security and citing
+## Contributing, security, presenting and citing
 
 - **Contributing:** see [CONTRIBUTING.md](CONTRIBUTING.md). We especially welcome anyone working on trapped-ion hardware who can check the noise model against real data.
 - **Team explainer:** [docs/explainer.md](docs/explainer.md) is the plain-language, judge-facing guide and self-test.
+- **Judge Q&A:** [docs/judge-qa.md](docs/judge-qa.md) covers 30+ anticipated questions (physics, stats, security, deployment, "is this real?").
+- **Pitch deck:** [docs/pitch/ARBITER_pitch.pptx](docs/pitch/ARBITER_pitch.pptx) — 12-slide, 5-minute presentation. See [docs/PITCH_DECK_OUTLINE.md](docs/PITCH_DECK_OUTLINE.md) for speaker notes.
 - **Security:** see [SECURITY.md](SECURITY.md) for how to report issues privately.
 - **Citing:** if you use ARBITER in research, please cite it using [CITATION.cff](CITATION.cff).
 

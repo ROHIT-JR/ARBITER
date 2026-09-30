@@ -6,6 +6,10 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
+  // Several specs run 100-1200 round analytic sessions plus GLR calibration
+  // Monte Carlo against a live backend; the default 30s per-test timeout is
+  // too tight on shared CI runners.
+  timeout: 60000,
   reporter: 'html',
   use: {
     baseURL: 'http://localhost:4173',

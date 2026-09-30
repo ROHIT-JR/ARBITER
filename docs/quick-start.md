@@ -38,13 +38,9 @@ from arbiter.qds_simulation import simulate_session, SessionConfig, Hypothesis
 from arbiter.noise import PRESETS
 from arbiter.pipeline import Arbiter
 
-config = SessionConfig(
-    rounds=100,
-    visibility=0.92,
-    hypothesis=Hypothesis.LEGITIMATE
-)
+config = SessionConfig(rounds=100, visibility=0.92, hypothesis=Hypothesis.LEGITIMATE)
 
-noise = PRESETS['trapped_ion_2024']
+noise = PRESETS["trapped_ion_2024"]
 result = simulate_session(config, noise=noise)
 
 detector = Arbiter()
