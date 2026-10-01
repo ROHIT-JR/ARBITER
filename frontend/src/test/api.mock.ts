@@ -34,6 +34,46 @@ export const mockVerdict: Verdict = {
       attribution: 'legitimate',
       log_evidence: [1.2, 2.4, 3.8, 4.1, 5.2],
     },
+    temporal: {
+      rejected: false,
+      alpha: 0.01,
+      per_test_alpha: 0.00167,
+      multiple_testing: 'bonferroni',
+      window: 50,
+      stride: 25,
+      streams: {
+        signature: {
+          rounds: 300,
+          flagged: false,
+          windows: [{ start: 0, stop: 50, count: 50, mismatch_rate: 0.04, variance: 0.001, skewness: 0.1, excess_kurtosis: -0.2 }],
+          burst: {
+            longest_run: { statistic: 3, threshold: 8, p_value: 0.9, alpha: 0.00167, flagged: false },
+            max_window_count: { statistic: 4, threshold: 12, p_value: 0.8, alpha: 0.00167, flagged: false },
+          },
+          spectral: { fisher_g: { statistic: 1.2, threshold: 6.5, p_value: 0.7, alpha: 0.00167, flagged: false } },
+        },
+        freshness: {
+          rounds: 300,
+          flagged: false,
+          windows: [{ start: 0, stop: 50, count: 50, mismatch_rate: 0.04, variance: 0.001, skewness: 0.1, excess_kurtosis: -0.2 }],
+          burst: {
+            longest_run: { statistic: 3, threshold: 8, p_value: 0.9, alpha: 0.00167, flagged: false },
+            max_window_count: { statistic: 4, threshold: 12, p_value: 0.8, alpha: 0.00167, flagged: false },
+          },
+          spectral: { fisher_g: { statistic: 1.2, threshold: 6.5, p_value: 0.7, alpha: 0.00167, flagged: false } },
+        },
+        chsh: {
+          rounds: 300,
+          flagged: false,
+          windows: [{ start: 0, stop: 50, count: 50, mismatch_rate: 0.04, variance: 0.001, skewness: 0.1, excess_kurtosis: -0.2 }],
+          burst: {
+            longest_run: { statistic: 3, threshold: 8, p_value: 0.9, alpha: 0.00167, flagged: false },
+            max_window_count: { statistic: 4, threshold: 12, p_value: 0.8, alpha: 0.00167, flagged: false },
+          },
+          spectral: { fisher_g: { statistic: 1.2, threshold: 6.5, p_value: 0.7, alpha: 0.00167, flagged: false } },
+        },
+      },
+    },
   },
   simulation_ground_truth: { hypothesis: 'legitimate', theta: 0.0 },
   ledger: { index: 5, hash: 'a1b2c3d4' },
