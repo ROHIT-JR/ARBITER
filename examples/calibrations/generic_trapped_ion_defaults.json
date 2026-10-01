@@ -1,0 +1,11 @@
+{
+  "device_id": "Generic-Trapped-Ion-Prototype",
+  "date": "2025-01-10T00:00:00Z",
+  "qubit_count": 5,
+  "two_qubit_gate_fidelity": 0.999,
+  "single_qubit_gate_fidelity": 0.99995,
+  "spam_error": 0.0005,
+  "t2_seconds": 1.0,
+  "t1_seconds": 0.1,
+  "notes": "Generic trapped-ion defaults matching ARBITER preset 'prototype'. Demonstrates minimal required fields; all optional parameters use ARBITER defaults."
+}

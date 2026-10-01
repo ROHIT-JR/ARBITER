@@ -1,0 +1,17 @@
+{
+  "device_id": "IonQ-Aria-inspired",
+  "date": "2025-01-15T10:30:00Z",
+  "qubit_count": 11,
+  "two_qubit_gate_fidelity": 0.9993,
+  "single_qubit_gate_fidelity": 0.99984,
+  "spam_error": 0.0002,
+  "t2_seconds": 8.5,
+  "t1_seconds": 420.0,
+  "link_idle_seconds": 0.001,
+  "heating_error_per_link": 0.00005,
+  "single_qubit_gates_per_round": 4,
+  "ms_overrotation_rad": 0.0001,
+  "crosstalk_error": 0.0001,
+  "attacker_storage_seconds": 0.15,
+  "notes": "Synthetic data inspired by IonQ Aria performance (2025). State-of-the-art ¹⁷¹Yb⁺ hyperfine qubits. Clearly labelled synthetic for demonstration purposes only."
+}

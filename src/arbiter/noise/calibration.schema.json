@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Ion-trap hardware calibration schema",
+  "description": "Schema for ion-trap hardware calibration data for ARBITER QDS verification",
+  "type": "object",
+  "required": [
+    "device_id",
+    "date",
+    "qubit_count",
+    "two_qubit_gate_fidelity",
+    "single_qubit_gate_fidelity",
+    "spam_error",
+    "t2_seconds",
+    "t1_seconds"
+  ],
+  "properties": {
+    "device_id": {
+      "type": "string",
+      "description": "Unique identifier for the hardware device",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when calibration was measured"
+    },
+    "qubit_count": {
+      "type": "integer",
+      "description": "Total number of qubits in the device",
+      "minimum": 2
+    },
+    "two_qubit_gate_fidelity": {
+      "type": "number",
+      "description": "Average Mølmer–Sørensen two-qubit gate fidelity",
+      "minimum": 0.5,
+      "maximum": 1.0
+    },
+    "single_qubit_gate_fidelity": {
+      "type": "number",
+      "description": "Average single-qubit gate fidelity",
+      "minimum": 0.5,
+      "maximum": 1.0
+    },
+    "spam_error": {
+      "type": "number",
+      "description": "State preparation and measurement (SPAM) error probability",
+      "minimum": 0,
+      "maximum": 0.5
+    },
+    "t2_seconds": {
+      "type": "number",
+      "description": "Coherence time T2 (dephasing timescale) in seconds",
+      "minimum": 1e-6,
+      "exclusiveMinimum": true
+    },
+    "t1_seconds": {
+      "type": "number",
+      "description": "Relaxation time T1 (amplitude damping timescale) in seconds",
+      "minimum": 1e-6,
+      "exclusiveMinimum": true
+    },
+    "link_idle_seconds": {
+      "type": "number",
+      "description": "Typical idle time between entangling operations",
+      "minimum": 0,
+      "default": 0.002
+    },
+    "heating_error_per_link": {
+      "type": "number",
+      "description": "Residual two-qubit error from motional heating per link",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.0001
+    },
+    "single_qubit_gates_per_round": {
+      "type": "integer",
+      "description": "Typical number of single-qubit gates per QDS protocol round",
+      "minimum": 0,
+      "default": 4
+    },
+    "ms_overrotation_rad": {
+      "type": "number",
+      "description": "Systematic MS gate phase error (over-rotation) in radians",
+      "minimum": 0,
+      "default": 0.0
+    },
+    "crosstalk_error": {
+      "type": "number",
+      "description": "Neighboring-qubit crosstalk: fractional fidelity loss",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.0
+    },
+    "attacker_storage_seconds": {
+      "type": "number",
+      "description": "Storage time for replay attacker's quantum memory",
+      "minimum": 0,
+      "default": 0.2
+    },
+    "notes": {
+      "type": "string",
+      "description": "Free-form notes about calibration (measurement conditions, caveats, provenance)",
+      "maxLength": 1000
+    }
+  },
+  "additionalProperties": false
+}
