@@ -66,6 +66,27 @@ class SessionConfig:
     params: ChannelParams = field(default_factory=ChannelParams)
     protocol: str = "prf"
     drift: DriftConfig | None = None
+    periodic_attack_every: int | None = None
+
+
+def _get_visibility_at_round(config: SessionConfig, round_idx: int) -> float:
+    """Get the true visibility at a specific round, considering drift config."""
+    if config.drift is None:
+        return config.params.visibility
+
+    drift = config.drift
+    n = config.n_rounds
+    if drift.type == "static_offset":
+        return drift.true_visibility
+    elif drift.type == "linear_drift":
+        t = round_idx / max(n - 1, 1)
+        return drift.v_start + t * (drift.v_end - drift.v_start)
+    elif drift.type == "step_change":
+        if round_idx < drift.change_round:
+            return drift.v_before
+        else:
+            return drift.v_after
+    return config.params.visibility
 
 
 @dataclass(frozen=True)
@@ -278,26 +299,6 @@ def _distribute_qds_keys_qiskit(
     return eliminated
 
 
-def _get_visibility_at_round(config: SessionConfig, round_idx: int) -> float:
-    """Get the true visibility at a specific round, considering drift config."""
-    if config.drift is None:
-        return config.params.visibility
-
-    drift = config.drift
-    n = config.n_rounds
-    if drift.type == "static_offset":
-        return drift.true_visibility
-    elif drift.type == "linear_drift":
-        t = round_idx / max(n - 1, 1)
-        return drift.v_start + t * (drift.v_end - drift.v_start)
-    elif drift.type == "step_change":
-        if round_idx < drift.change_round:
-            return drift.v_before
-        else:
-            return drift.v_after
-    return config.params.visibility
-
-
 def simulate_session(
     hypothesis: Hypothesis = Hypothesis.LEGITIMATE,
     theta: float = 1.0,
@@ -310,21 +311,20 @@ def simulate_session(
     """Simulate one session. ``seed`` makes it reproducible; it is mixed with the
     scenario so that different scenarios run under the same seed still get
     distinct QRNG nonces (identical calls do reproduce the same nonce, which
-    the verifier correctly treats as a resubmission).
-
-    If ``config.drift`` is provided, the true visibility varies per round
-    according to the drift configuration, while ``config.params.visibility``
-    remains the calibrated (assumed) visibility used by the detector.
-    """
+    the verifier correctly treats as a resubmission)."""
     config = config or SessionConfig()
     protocol = _normalise_protocol(config.protocol)
+    if config.periodic_attack_every is not None and config.periodic_attack_every < 1:
+        raise ValueError("periodic_attack_every must be positive")
     if hypothesis is Hypothesis.LEGITIMATE:
         theta = 0.0
     elif hypothesis in ALL_OR_NOTHING:
         theta = 1.0
     theta = float(theta)
     if seed is not None:
-        scenario = f"{seed}|{hypothesis.value}|{theta!r}|{config.n_rounds}|{message}".encode()
+        scenario = (
+            f"{seed}|{hypothesis.value}|{theta!r}|{config.n_rounds}|{config.periodic_attack_every!r}|{message}"
+        ).encode()
         seed = int.from_bytes(hashlib.sha256(scenario).digest()[:4], "big") >> 1
     qrng = QRNG(seed)
     nonce = qrng.token_bytes(32)
@@ -334,7 +334,16 @@ def simulate_session(
     rtypes = rng.choice(3, size=n, p=config.round_mix)
     settings = rng.integers(0, 4, size=n)
     cells = np.where(rtypes == 2, 2 + settings, rtypes).astype(np.int64)
-    attacked = rng.random(n) < theta
+    # A periodic schedule is a deliberately structured attack fixture.  It
+    # overrides the i.i.d. theta draw and starts at round zero so it is fully
+    # reproducible (and visible to tests) without leaking to any detector.
+    if hypothesis is Hypothesis.LEGITIMATE:
+        attacked = np.zeros(n, dtype=bool)
+    elif hypothesis in ALL_OR_NOTHING or config.periodic_attack_every is None:
+        attacked = rng.random(n) < theta
+    else:
+        attacked = np.arange(n) % config.periodic_attack_every == 0
+        theta = float(attacked.mean())
 
     if protocol == "qds":
         message_bit = hashlib.sha256(message.encode()).digest()[0] & 1

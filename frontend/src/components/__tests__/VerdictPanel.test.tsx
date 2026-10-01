@@ -5,7 +5,7 @@ import type { Verdict } from '../../api';
 
 describe('VerdictPanel', () => {
   const mockVerdict: Verdict = {
-    decision: 'REJECT',
+    decision: 'REJECT' as const,
     attribution: 'forgery',
     simulation_ground_truth: { hypothesis: 'forgery', theta: 1.0 },
     session: { id: 'test-uuid', nonce: 'abc', backend: 'analytic', rounds: 1200, rounds_per_cell: [200, 100, 150, 150, 150, 150], transcript_digest: 'digest' },
@@ -16,6 +16,46 @@ describe('VerdictPanel', () => {
       freshness: { rounds: 300, mismatches: 150, observed_rate: 0.5, expected_rate: 0.04, p_value: 1e-50, flagged: true },
       unified: { rejected: true, statistic: 45.2, threshold: 8.9, alpha: 0.01, attribution: 'forgery', posterior: { legitimate: 0.001, forgery: 0.95, impersonation: 0.02, replay: 0.02, channel_manipulation: 0.009 }, theta_hat: { forgery: 1.0 } },
       sequential: { rejected: true, stopped_at: 45, attributed_at: 67, budget: 1200, log_threshold: 4.605, attribution: 'forgery', log_evidence: [0.1, 0.5, 1.2] },
+      temporal: {
+        rejected: false,
+        alpha: 0.01,
+        per_test_alpha: 0.00167,
+        multiple_testing: 'bonferroni',
+        window: 50,
+        stride: 25,
+        streams: {
+          signature: {
+            rounds: 300,
+            flagged: false,
+            windows: [{ start: 0, stop: 50, count: 50, mismatch_rate: 0.04, variance: 0.001, skewness: 0.1, excess_kurtosis: -0.2 }],
+            burst: {
+              longest_run: { statistic: 3, threshold: 8, p_value: 0.9, alpha: 0.00167, flagged: false },
+              max_window_count: { statistic: 4, threshold: 12, p_value: 0.8, alpha: 0.00167, flagged: false },
+            },
+            spectral: { fisher_g: { statistic: 1.2, threshold: 6.5, p_value: 0.7, alpha: 0.00167, flagged: false } },
+          },
+          freshness: {
+            rounds: 300,
+            flagged: false,
+            windows: [{ start: 0, stop: 50, count: 50, mismatch_rate: 0.04, variance: 0.001, skewness: 0.1, excess_kurtosis: -0.2 }],
+            burst: {
+              longest_run: { statistic: 3, threshold: 8, p_value: 0.9, alpha: 0.00167, flagged: false },
+              max_window_count: { statistic: 4, threshold: 12, p_value: 0.8, alpha: 0.00167, flagged: false },
+            },
+            spectral: { fisher_g: { statistic: 1.2, threshold: 6.5, p_value: 0.7, alpha: 0.00167, flagged: false } },
+          },
+          chsh: {
+            rounds: 300,
+            flagged: false,
+            windows: [{ start: 0, stop: 50, count: 50, mismatch_rate: 0.04, variance: 0.001, skewness: 0.1, excess_kurtosis: -0.2 }],
+            burst: {
+              longest_run: { statistic: 3, threshold: 8, p_value: 0.9, alpha: 0.00167, flagged: false },
+              max_window_count: { statistic: 4, threshold: 12, p_value: 0.8, alpha: 0.00167, flagged: false },
+            },
+            spectral: { fisher_g: { statistic: 1.2, threshold: 6.5, p_value: 0.7, alpha: 0.00167, flagged: false } },
+          },
+        },
+      },
     },
   };
 

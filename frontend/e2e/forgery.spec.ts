@@ -29,6 +29,6 @@ test.describe('Forgery session', () => {
     await expect(page.locator('div.attribution', { hasText: /forgery/i })).toBeVisible();
     
     // Check evidence chart rendered
-    await expect(page.getByRole('img')).toBeVisible();
+    await expect(page.getByRole('img', { name: /sequential log-evidence/i })).toBeVisible();
   });
 });
