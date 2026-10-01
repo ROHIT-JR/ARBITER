@@ -5,7 +5,7 @@ import type { Verdict } from '../../api';
 
 describe('VerdictPanel', () => {
   const mockVerdict: Verdict = {
-    decision: 'REJECT',
+    decision: 'REJECT' as const,
     attribution: 'forgery',
     simulation_ground_truth: { hypothesis: 'forgery', theta: 1.0 },
     session: { id: 'test-uuid', nonce: 'abc', backend: 'analytic', rounds: 1200, rounds_per_cell: [200, 100, 150, 150, 150, 150], transcript_digest: 'digest' },

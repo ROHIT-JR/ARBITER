@@ -7,7 +7,7 @@ name = "arbiter-qds"
 version = "0.1.0"
 description = "Unified, Neyman-Pearson attack attribution for teleportation-based quantum digital signatures"
 readme = "README.md"
-license = "Apache-2.0"
+license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
 authors = [{ name = "Team F0rg3d (SIH26-A0H-T043)" }]
 keywords = ["quantum", "digital-signatures", "qds", "qiskit", "hypothesis-testing", "post-quantum"]
