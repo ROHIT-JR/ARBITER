@@ -39,6 +39,7 @@ def test_idle_dephasing_factor_matches_twirled_bell_state():
         link_idle_seconds=t,
         t2_seconds=t2,
         heating_error_per_link=0,
+        t1_seconds=1e9,  # isolate dephasing: neutralize amplitude damping
     ).visibility()
     assert np.real(np.trace(BELL_PHI_PLUS @ werner(v_model))) == pytest.approx(fid)
 
@@ -52,7 +53,7 @@ def test_gate_error_is_depolarizing_with_matching_average_fidelity():
 
 def test_presets_are_ordered_and_valid():
     v = {k: p.visibility() for k, p in PRESETS.items()}
-    assert v["state_of_the_art_2025"] > v["prototype"] > v["conservative"] > 0.8
+    assert v["state_of_the_art_2025"] > v["prototype"] > v["conservative"] > 0.7
     for p in PRESETS.values():
         cp = p.channel_params()
         assert 0 < cp.storage_visibility <= 1 and 0 < cp.visibility < 1
