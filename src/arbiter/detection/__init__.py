@@ -9,6 +9,7 @@ from arbiter.detection.security import (
     protocol_security_bounds,
 )
 from arbiter.detection.sequential import SequentialDetector, SequentialVerdict
+from arbiter.detection.temporal import TemporalDetector, TemporalVerdict
 from arbiter.detection.unified import UnifiedDetector, UnifiedVerdict
 
 __all__ = [
@@ -20,6 +21,8 @@ __all__ = [
     "SequentialVerdict",
     "SecurityBounds",
     "SecurityParameters",
+    "TemporalDetector",
+    "TemporalVerdict",
     "UnifiedDetector",
     "UnifiedVerdict",
     "attack_bounds",

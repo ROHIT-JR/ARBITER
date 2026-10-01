@@ -18,6 +18,7 @@ Built for **Smart India Hackathon 2026, Problem Statement 26141** (set by [Egree
 | Decision rule | Four independent, hand-set thresholds | One level-α generalized likelihood-ratio test over all attacks (Neyman–Pearson) |
 | Output | accept / reject | accept / reject **plus** a maximum-likelihood attack attribution and strength estimate |
 | Sample size | Fixed | Anytime-valid sequential test: raises the alarm after ~6–16 rounds for full-strength attacks |
+| Structured errors | Pooled error counts | Calibrated burst and periodogram tests over the ordered stream (no ML) |
 | Channel check | Error rate only | CHSH Bell test (S < 2 means no entanglement survived) |
 | Where the likelihoods come from | Tuned constants | Density matrices, including an explicit teleportation map, cross-checked against Qiskit circuits |
 | Noise | Generic depolarizing | Trapped-ion error budget (MS gate, T₂ dephasing, heating, SPAM) → channel parameters |
@@ -180,13 +181,30 @@ Service configuration includes:
 
 The API uses SQLite with one connection per storage operation, so session transcripts, verdicts and replay nonces survive a restart. PostgreSQL is deliberately out of scope; a future backend can replace `SQLiteStorage` by providing the same save/load session, verdict and atomic nonce-registration operations without changing the detector or API behavior.
 
+### Temporal diagnostics
+
+Every session verdict includes `layers.temporal`: sliding-window mismatch rate,
+variance, skewness and excess kurtosis for signature, freshness and CHSH
+streams.  It additionally runs a longest-run test, a maximum window-count test
+and Fisher's maximum-periodogram (`g`) test.  These are hypothesis tests, not
+features passed to a classifier: each null distribution is simulated from the
+observed round schedule and the legitimate Born-rule probabilities.
+
+The temporal family uses Bonferroni allocation across 3 streams × 3 tests.
+The pipeline then splits its configured overall α across the unified GLRT,
+freshness tail test and temporal family.  Consequently adding diagnostics does
+not silently inflate the declared false-alarm budget.  The dashboard plots the
+windowed rates after a session; the optional `periodic_attack_every` session
+field (`k`) is a reproducible simulation fixture that attacks rounds
+`0, k, 2k, …` for testing periodic interference.
+
 ## Repository layout
 
 ```
 src/arbiter/
   quantum/            states, channels, trace distance, Helstrom, quantum Chernoff, min-error POVM SDP
   qds_simulation/     physical model, Qiskit circuits, session simulator
-  detection/          unified GLRT, fixed-threshold baseline, sequential e-process, CHSH, freshness, bounds
+  detection/          unified GLRT, temporal burst/spectral tests, fixed-threshold baseline, sequential e-process, CHSH, freshness, bounds
   audit_ledger/       hash chain + ML-DSA-65 + Merkle-Lamport
   noise/              trapped-ion error budget → channel parameters
   pki_risk_scoring/   X.509 parsing, Shor resource estimates, Mosca's inequality

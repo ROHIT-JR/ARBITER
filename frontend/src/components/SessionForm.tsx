@@ -14,6 +14,7 @@ export default function SessionForm({ busy, onRun, onResubmit }: Props) {
   const [rounds, setRounds] = useState(1200);
   const [backend, setBackend] = useState<"analytic" | "qiskit">("analytic");
   const [seed, setSeed] = useState("");
+  const [period, setPeriod] = useState("");
 
   const fixedTheta = hypothesis === "legitimate" || hypothesis === "impersonation";
 
@@ -22,7 +23,14 @@ export default function SessionForm({ busy, onRun, onResubmit }: Props) {
       className="form"
       onSubmit={(e) => {
         e.preventDefault();
-        onRun({ hypothesis, theta, n_rounds: rounds, backend, seed: seed === "" ? null : Number(seed) });
+        onRun({
+          hypothesis,
+          theta,
+          n_rounds: rounds,
+          backend,
+          seed: seed === "" ? null : Number(seed),
+          periodic_attack_every: period === "" ? null : Number(period),
+        });
       }}
     >
       <label>
@@ -65,6 +73,20 @@ export default function SessionForm({ busy, onRun, onResubmit }: Props) {
           Seed <span className="muted">(optional)</span>
         </span>
         <input type="number" value={seed} placeholder="random" onChange={(e) => setSeed(e.target.value)} />
+      </label>
+      <label>
+        <span>
+          Periodic attack every <span className="muted">(optional demo fixture)</span>
+        </span>
+        <input
+          type="number"
+          min={1}
+          step={1}
+          value={period}
+          placeholder="k rounds"
+          disabled={fixedTheta}
+          onChange={(e) => setPeriod(e.target.value)}
+        />
       </label>
       <div className="actions">
         <button type="submit" disabled={busy}>

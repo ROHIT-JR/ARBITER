@@ -31,6 +31,6 @@ test.describe('Resubmit replay', () => {
     expect(attributionAfter).toBe(attributionBefore);
     
     // Evidence chart should still be visible
-    await expect(page.getByRole('img')).toBeVisible();
+    await expect(page.getByRole('img', { name: /sequential log-evidence/i })).toBeVisible();
   });
 });

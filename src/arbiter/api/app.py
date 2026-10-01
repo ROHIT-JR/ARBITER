@@ -76,6 +76,11 @@ class SessionRequest(BaseModel):
     seed: int | None = None
     message: str = "transfer 100 units to account 42"
     trajectory: bool = Field(False, description="include the sequential log-evidence trajectory")
+    periodic_attack_every: int | None = Field(
+        None,
+        ge=1,
+        description="structured attack fixture: attack every k-th round (ignored for legitimate/all-or-nothing cases)",
+    )
     v_min: float | None = Field(None, ge=0.5, le=1.0, description="minimum visibility for nuisance parameter mode")
     v_max: float | None = Field(None, ge=0.5, le=1.0, description="maximum visibility for nuisance parameter mode")
     drift: dict | None = Field(
@@ -290,6 +295,7 @@ def create_app(data_dir: Path | None = None, params: ChannelParams | None = None
             params=arbiter.params,
             protocol=req.protocol,
             drift=DriftConfig(**req.drift) if req.drift else None,
+            periodic_attack_every=req.periodic_attack_every,
         )
         t = simulate_session(req.hypothesis, req.theta, config, req.message, seed=req.seed, backend=req.backend)
         storage.save_session(t, seed=req.seed)

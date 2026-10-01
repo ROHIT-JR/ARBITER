@@ -10,6 +10,7 @@ export interface SessionRequest {
   backend: "analytic" | "qiskit";
   seed?: number | null;
   trajectory?: boolean;
+  periodic_attack_every?: number | null;
 }
 
 export interface Verdict {
@@ -39,9 +40,35 @@ export interface Verdict {
       attribution: Hypothesis;
       log_evidence?: number[];
     };
+    temporal: {
+      rejected: boolean;
+      alpha: number;
+      per_test_alpha: number;
+      multiple_testing: string;
+      window: number;
+      stride: number;
+      streams: Record<"signature" | "freshness" | "chsh", {
+        rounds: number;
+        flagged: boolean;
+        windows: { start: number; stop: number; count: number; mismatch_rate: number; variance: number; skewness: number; excess_kurtosis: number }[];
+        burst: {
+          longest_run: TemporalTest;
+          max_window_count: TemporalTest;
+        };
+        spectral: { fisher_g: TemporalTest };
+      }>;
+    };
   };
   simulation_ground_truth: { hypothesis: Hypothesis; theta: number };
   ledger?: { index: number; hash: string };
+}
+
+export interface TemporalTest {
+  statistic: number;
+  threshold: number;
+  p_value: number;
+  alpha: number;
+  flagged: boolean;
 }
 
 export interface LedgerSummary {
