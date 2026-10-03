@@ -6,9 +6,13 @@ import pytest
 from arbiter.detection.unified import UnifiedDetector
 from arbiter.pipeline import Arbiter
 from arbiter.qds_simulation.model import (
+    BELL_FIDELITY_CELLS,
+    CELLS,
+    CHSH_CELLS,
     ChannelParams,
     Hypothesis,
     _legit_cell_probabilities,
+    cell_probabilities,
     estimate_visibility,
     visibility_ci,
 )
@@ -22,21 +26,34 @@ from arbiter.qds_simulation.protocol import (
 def test_legit_cell_probabilities():
     """Test that legitimate cell probabilities are correct."""
     p = _legit_cell_probabilities(0.92)
-    assert p.shape == (6,)
+    assert p.shape == (len(CELLS),)
     # signature, freshness: p = (1-v)/2 = 0.04
     assert abs(p[0] - 0.04) < 1e-10
     assert abs(p[1] - 0.04) < 1e-10
-    # CHSH cells
+    # Every cell records a *mismatch* bit, (1 - sign*correlator)/2. The ideal
+    # correlator already carries the cell's sign, so sign*correlator is
+    # positive everywhere and all four CHSH cells share one probability.
     sqrt2 = np.sqrt(2)
-    expected_chsh = (1 - np.array([1, 1, 1, -1]) * 0.92 / sqrt2) / 2
-    np.testing.assert_allclose(p[2:], expected_chsh, rtol=1e-10)
+    np.testing.assert_allclose(p[CHSH_CELLS], (1 - 0.92 / sqrt2) / 2, rtol=1e-10)
+    # Aligned stabiliser settings keep the full visibility (no 1/sqrt2 loss).
+    np.testing.assert_allclose(p[BELL_FIDELITY_CELLS], (1 - 0.92) / 2, rtol=1e-10)
+
+
+def test_legit_cell_probabilities_agree_with_the_born_rule():
+    """Regression for the chsh11 sign-handling bug: the closed form must agree
+    with the density-matrix computation in every cell."""
+    np.testing.assert_allclose(
+        _legit_cell_probabilities(0.92),
+        cell_probabilities(Hypothesis.LEGITIMATE, 0.0, ChannelParams(visibility=0.92)),
+        atol=1e-12,
+    )
 
 
 def test_estimate_visibility_known_v():
     """Test MLE visibility estimation when true v is known."""
     v_true = 0.92
     params = ChannelParams(visibility=v_true)
-    n = np.array([200, 200, 200, 200, 200, 200])
+    n = np.full(len(CELLS), 200)
     # Expected counts under H0 at v=0.92
     p = _legit_cell_probabilities(v_true)
     k = np.round(n * p).astype(int)
@@ -48,8 +65,8 @@ def test_estimate_visibility_known_v():
 def test_estimate_visibility_low_counts():
     """Test MLE with low counts falls back gracefully."""
     params = ChannelParams(visibility=0.92)
-    n = np.zeros(6, dtype=int)
-    k = np.zeros(6, dtype=int)
+    n = np.zeros(len(CELLS), dtype=int)
+    k = np.zeros(len(CELLS), dtype=int)
 
     v_hat = estimate_visibility(n, k, params)
     assert v_hat == params.visibility
@@ -58,14 +75,24 @@ def test_estimate_visibility_low_counts():
 def test_visibility_ci():
     """Test profile likelihood confidence interval."""
     v_true = 0.92
-    # params = ChannelParams(visibility=v_true)
-    n = np.array([300, 300, 300, 300, 300, 300])
+    n = np.full(len(CELLS), 300)
     p = _legit_cell_probabilities(v_true)
     k = np.round(n * p).astype(int)
 
     ci = visibility_ci(n, k, confidence=0.95)
     assert ci[0] <= v_true <= ci[1]
     assert ci[1] - ci[0] < 0.1  # reasonable width
+
+
+def test_estimate_visibility_is_unbiased_on_sampled_sessions():
+    """The chsh11 sign bug biased this low by ~0.024; it should now sit within
+    sampling noise of the true visibility."""
+    estimates = []
+    for seed in range(12):
+        transcript = simulate_session(config=SessionConfig(n_rounds=4000), seed=100 + seed)
+        n, k = transcript.counts()
+        estimates.append(float(estimate_visibility(n, k)))
+    assert abs(float(np.mean(estimates)) - 0.92) < 0.01
 
 
 def test_drift_config_static_offset():
@@ -130,13 +157,6 @@ def test_unified_detector_v_hat():
     assert verdict.v_design == 0.92
 
 
-@pytest.mark.xfail(
-    reason="Blocked on pre-existing CHSH sign-handling bug in "
-    "model.py::_attack_cell_probs (chsh11 cell) — see Issue #24 'External gates'. "
-    "Nuisance-parameter threshold calibration returns 0.0 until that's fixed, "
-    "which over-rejects legitimate sessions. Tracked separately from this PR.",
-    strict=True,
-)
 def test_unified_detector_nuisance_parameter():
     """Test detector with visibility as nuisance parameter."""
     detector = UnifiedDetector(
@@ -160,13 +180,6 @@ def test_unified_detector_nuisance_parameter():
     assert not verdict.rejected
 
 
-@pytest.mark.xfail(
-    reason="Blocked on pre-existing CHSH sign-handling bug in "
-    "model.py::_attack_cell_probs (chsh11 cell) — see Issue #24 'External gates'. "
-    "MC threshold calibration returns 0.0 (negative GLR), so FAR is ~0.97 instead "
-    "of <=0.01. Tracked separately from this PR.",
-    strict=True,
-)
 def test_far_control_under_drift():
     """Test that FAR ≤ alpha under drift when using nuisance parameter mode."""
     detector = UnifiedDetector(
@@ -245,13 +258,6 @@ def test_attack_power_preserved():
     assert power_fixed - power_nuisance < 0.05, f"Power drop too large: {power_fixed:.2f} vs {power_nuisance:.2f}"
 
 
-@pytest.mark.xfail(
-    reason="Blocked on pre-existing CHSH sign-handling bug in "
-    "model.py::_attack_cell_probs (chsh11 cell) — see Issue #24 'External gates'. "
-    "Median |v_hat - v_true| is ~0.032, over the 0.02 target, until that's fixed. "
-    "Tracked separately from this PR.",
-    strict=True,
-)
 def test_v_hat_accuracy():
     """Test that v_hat is within ±0.02 of true v for 1200-round sessions."""
     detector = UnifiedDetector(alpha=0.01)

@@ -20,10 +20,21 @@ import numpy as np
 from qiskit import transpile
 from qiskit_aer import AerSimulator
 
-from arbiter.qds_simulation.circuits import ChshSpec, TeleportSpec, UseSpec, chsh_circuit, teleport_circuit, use_circuit
+from arbiter.qds_simulation.circuits import (
+    BellFidelitySpec,
+    ChshSpec,
+    TeleportSpec,
+    UseSpec,
+    bell_fidelity_circuit,
+    chsh_circuit,
+    teleport_circuit,
+    use_circuit,
+)
 from arbiter.qds_simulation.model import (
     ALL_OR_NOTHING,
     BB84_LABELS,
+    BELL_FIDELITY_BASES,
+    BELL_FIDELITY_SIGNS,
     CELLS,
     CHSH_SETTINGS,
     CHSH_SIGNS,
@@ -38,7 +49,10 @@ from arbiter.qds_simulation.model import (
 from arbiter.qrng import QRNG
 from arbiter.quantum.states import BASES, PauliLabel, projector
 
-ROUND_TYPES = (RoundType.SIGNATURE, RoundType.FRESHNESS, RoundType.CHSH)
+ROUND_TYPES = (RoundType.SIGNATURE, RoundType.FRESHNESS, RoundType.CHSH, RoundType.BELL_FIDELITY)
+# Cell index at which each shared-pair round type's settings begin in CELLS.
+_CHSH_CELL0 = 2
+_BELL_FIDELITY_CELL0 = _CHSH_CELL0 + len(CHSH_SETTINGS)
 
 
 @dataclass(frozen=True)
@@ -59,14 +73,51 @@ class DriftConfig:
     change_round: int = 0  # for step_change: round index where change occurs
 
 
+# Default round mix (signature, freshness, CHSH, Bell-fidelity).
+#
+# Chosen by ``examples/optimise_round_mix.py`` as the Pareto-optimal allocation:
+# every attack's measured Chernoff exponent is >= the legacy (0.5, 0.25, 0.25)
+# mix and three of the four are strictly better, cutting the bottleneck attack
+# (replay) from ~215 to ~174 rounds at eps = 1e-6. The floors are
+#
+#   w_sig   >= 0.50   forgery is visible *only* on signature rounds, so this
+#                     keeps forgery detection at parity with the legacy mix;
+#   w_chsh  >= 0.117  below ~140 CHSH rounds the point-estimate ``flagged``
+#                     check in ``detection.chsh`` false-alarms above 1%;
+#   w_fresh >= 0.15   keeps the standalone freshness p-value meaningful
+#                     (defence in depth -- Bell-fidelity rounds alone would
+#                     carry replay detection otherwise).
+DEFAULT_ROUND_MIX = (0.50, 0.15, 0.12, 0.23)
+
+
+def _normalise_round_mix(mix: tuple[float, ...]) -> tuple[float, float, float, float]:
+    """Accept a legacy 3-tuple (sig, fresh, chsh) and zero-pad Bell-fidelity."""
+    mix = tuple(float(w) for w in mix)
+    if len(mix) == 3:
+        mix = (*mix, 0.0)
+    if len(mix) != 4:
+        raise ValueError(f"round_mix must have 3 or 4 entries, got {len(mix)}")
+    if any(w < 0 for w in mix):
+        raise ValueError(f"round_mix entries must be non-negative, got {mix}")
+    total = sum(mix)
+    if not np.isclose(total, 1.0, atol=1e-9):
+        raise ValueError(f"round_mix must sum to 1, got {total}")
+    return mix  # type: ignore[return-value]
+
+
 @dataclass(frozen=True)
 class SessionConfig:
     n_rounds: int = 1200
-    round_mix: tuple[float, float, float] = (0.5, 0.25, 0.25)  # sig, fresh, chsh
+    # sig, fresh, chsh, bell_fidelity -- a legacy 3-tuple is accepted and
+    # zero-padded, so existing explicit configs keep their exact behaviour.
+    round_mix: tuple[float, ...] = DEFAULT_ROUND_MIX
     params: ChannelParams = field(default_factory=ChannelParams)
     protocol: str = "prf"
     drift: DriftConfig | None = None
     periodic_attack_every: int | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "round_mix", _normalise_round_mix(self.round_mix))
 
 
 def _get_visibility_at_round(config: SessionConfig, round_idx: int) -> float:
@@ -331,9 +382,21 @@ def simulate_session(
     rng = np.random.default_rng(qrng.seed_int())
     n = config.n_rounds
 
-    rtypes = rng.choice(3, size=n, p=config.round_mix)
-    settings = rng.integers(0, 4, size=n)
-    cells = np.where(rtypes == 2, 2 + settings, rtypes).astype(np.int64)
+    rtypes = rng.choice(len(ROUND_TYPES), size=n, p=config.round_mix)
+    # One draw per round, reused as the CHSH setting (4) or the Bell-fidelity
+    # basis (3) depending on the round type, so the stream stays independent
+    # of the mix and a zero-weight round type consumes no extra randomness.
+    settings = rng.integers(0, len(CHSH_SETTINGS), size=n)
+    bf_settings = rng.integers(0, len(BELL_FIDELITY_BASES), size=n)
+    cells = np.where(
+        rtypes == ROUND_TYPES.index(RoundType.CHSH),
+        _CHSH_CELL0 + settings,
+        np.where(
+            rtypes == ROUND_TYPES.index(RoundType.BELL_FIDELITY),
+            _BELL_FIDELITY_CELL0 + bf_settings,
+            rtypes,
+        ),
+    ).astype(np.int64)
     # A periodic schedule is a deliberately structured attack fixture.  It
     # overrides the i.i.d. theta draw and starts at round zero so it is fully
     # reproducible (and visible to tests) without leaking to any detector.
@@ -377,9 +440,13 @@ def simulate_session(
             # Use average visibility for qiskit (approximation)
             v_avg = np.mean([_get_visibility_at_round(config, i) for i in range(n)])
             params_avg = ChannelParams(visibility=v_avg, storage_visibility=config.params.storage_visibility)
-            outcomes = _run_qiskit(hypothesis, rtypes, settings, honest, attacked, params_avg, rng, protocol)
+            outcomes = _run_qiskit(
+                hypothesis, rtypes, settings, honest, attacked, params_avg, rng, protocol, bf_settings
+            )
         else:
-            outcomes = _run_qiskit(hypothesis, rtypes, settings, honest, attacked, config.params, rng, protocol)
+            outcomes = _run_qiskit(
+                hypothesis, rtypes, settings, honest, attacked, config.params, rng, protocol, bf_settings
+            )
     else:
         raise ValueError(f"unknown backend {backend!r}")
 
@@ -405,13 +472,19 @@ def _round_spec(
     attacked: bool,
     params: ChannelParams,
     rng: np.random.Generator,
+    bf_setting: int = 0,
 ):
     v = params.visibility
     h = h if attacked else Hypothesis.LEGITIMATE
     intercept = BASES[rng.integers(3)] if h is Hypothesis.CHANNEL_MANIPULATION else None
+    # Replay and impersonation both report outcomes uncorrelated with the
+    # verifier's half, so the shared-pair round types treat them alike.
+    uncorrelated = h in (Hypothesis.IMPERSONATION, Hypothesis.REPLAY)
     if ROUND_TYPES[rtype] is RoundType.CHSH:
         a, b = CHSH_SETTINGS[setting]
-        return ChshSpec(a, b, v, intercept, h in (Hypothesis.IMPERSONATION, Hypothesis.REPLAY))
+        return ChshSpec(a, b, v, intercept, uncorrelated)
+    if ROUND_TYPES[rtype] is RoundType.BELL_FIDELITY:
+        return BellFidelitySpec(BELL_FIDELITY_BASES[bf_setting], v, intercept, uncorrelated)
     rt = ROUND_TYPES[rtype]
     honest = PauliLabel.from_index(int(label_idx))
     sent, pre_noise = honest, 0.0
@@ -424,7 +497,11 @@ def _round_spec(
     return TeleportSpec(sent, honest, v, pre_noise, intercept, h is Hypothesis.IMPERSONATION)
 
 
-def _run_qiskit(h, rtypes, settings, labels, attacked, params, rng, protocol: str = "prf") -> np.ndarray:
+def _run_qiskit(
+    h, rtypes, settings, labels, attacked, params, rng, protocol: str = "prf", bf_settings=None
+) -> np.ndarray:
+    if bf_settings is None:
+        bf_settings = np.zeros(len(rtypes), dtype=np.int64)
     groups: dict[object, list[int]] = defaultdict(list)
     for i in range(len(rtypes)):
         if protocol == "qds" and ROUND_TYPES[rtypes[i]] is RoundType.SIGNATURE:
@@ -437,7 +514,7 @@ def _run_qiskit(h, rtypes, settings, labels, attacked, params, rng, protocol: st
                 intercept,
             )
         else:
-            spec = _round_spec(h, rtypes[i], settings[i], labels[i], attacked[i], params, rng)
+            spec = _round_spec(h, rtypes[i], settings[i], labels[i], attacked[i], params, rng, int(bf_settings[i]))
         groups[spec].append(i)
 
     specs = list(groups)
@@ -445,6 +522,8 @@ def _run_qiskit(h, rtypes, settings, labels, attacked, params, rng, protocol: st
     for spec in specs:
         if isinstance(spec, ChshSpec):
             circuits.append(chsh_circuit(spec))
+        elif isinstance(spec, BellFidelitySpec):
+            circuits.append(bell_fidelity_circuit(spec))
         elif isinstance(spec, UseSpec):
             circuits.append(use_circuit(spec))
         else:
@@ -473,6 +552,13 @@ def _run_qiskit(h, rtypes, settings, labels, attacked, params, rng, protocol: st
                 ab = regs[0]  # last register, bits written as "b a"
                 parity = int(ab[0]) ^ int(ab[1])
                 sign = CHSH_SIGNS[CHSH_SETTINGS.index((spec.a, spec.b))]
+                outcomes[i] = parity if sign == 1 else 1 - parity
+            elif isinstance(spec, BellFidelitySpec):
+                ab = regs[0]
+                parity = int(ab[0]) ^ int(ab[1])
+                # ZZ and XX stabilise |Phi+> with +1, YY with -1, so for YY the
+                # honest parity is 1 and the recorded mismatch bit flips.
+                sign = BELL_FIDELITY_SIGNS[BELL_FIDELITY_BASES.index(spec.basis)]
                 outcomes[i] = parity if sign == 1 else 1 - parity
             elif isinstance(spec, UseSpec):
                 eliminated = use_eliminated_label(spec.elimination_basis, int(regs[0]))

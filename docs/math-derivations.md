@@ -116,25 +116,32 @@ returns these assumptions with every result.
 
 ## 2. Observation model
 
-The verifier's observations fall into six Bernoulli cells: signature mismatch, freshness mismatch, and four CHSH-setting cells. For hypothesis `h` at strength `θ`:
+The verifier's observations fall into nine Bernoulli cells: signature mismatch, freshness mismatch, four CHSH-setting cells, and three Bell-fidelity cells. For hypothesis `h` at strength `θ`:
 
 ```
 q_{h,θ}(c) = (1 − θ) q_0(c) + θ q_h(c)
 q_h(sig/fresh) = Tr(Π_{b, 1−s} ρ_{h})            (mismatch probability)
-q_h(chsh_ab)  = (1 − σ_ab Tr[(A_a ⊗ B_b) ρ_h]) / 2
+q_h(chsh_ab)   = (1 − σ_ab Tr[(A_a ⊗ B_b) ρ_h]) / 2
+q_h(bell_PP)   = (1 − τ_P Tr[(P ⊗ P) ρ_h]) / 2
 ```
 
-The CHSH settings are `A ∈ {Z, X}` and `B ∈ {(Z+X)/√2, (Z−X)/√2}`, with signs `σ = (+,+,+,−)`, so that `S = Σ σ_ab E_ab = Σ (1 − 2 q(chsh_ab))`. See `cell_probabilities`.
+The CHSH settings are `A ∈ {Z, X}` and `B ∈ {(Z+X)/√2, (Z−X)/√2}`, with signs `σ = (+,+,+,−)`, so that `S = Σ σ_ab E_ab = Σ (1 − 2 q(chsh_ab))`.
+
+The Bell-fidelity settings are *aligned*: both parties measure the same `P ∈ {Z, X, Y}`, with signs `τ = (+,+,−)` — the `|Φ⁺⟩` stabiliser eigenvalues `⟨ZZ⟩ = ⟨XX⟩ = +1`, `⟨YY⟩ = −1`. The three signed means give the fidelity `F = (1 + ⟨ZZ⟩ + ⟨XX⟩ − ⟨YY⟩)/4`, so an ideal pair gives `F = 1` and a Werner pair `F = (1+3v)/4`. See `cell_probabilities`.
+
+Every cell records a **mismatch** bit `(1 − sign · correlator)/2`. The ideal correlator already carries the cell's sign, so `sign · correlator` is positive in every cell — applying the sign a second time is what used to invert the `chsh11` cell and bias `estimate_visibility` low by ≈0.024.
 
 With `v = 0.92`:
 
-| hypothesis (θ=1) | sig | fresh | each CHSH cell | S |
-|---|---|---|---|---|
-| legitimate | 0.040 | 0.040 | 0.175 | 2.60 |
-| forgery | 0.500 | 0.040 | 0.175 | 2.60 |
-| impersonation | 0.500 | 0.500 | 0.500 | 0 |
-| replay | 0.109 | 0.500 | 0.500 | 0 |
-| channel manipulation | 0.347 | 0.347 | 0.392 | 0.87 |
+| hypothesis (θ=1) | sig | fresh | each CHSH cell | each Bell cell | S | F |
+|---|---|---|---|---|---|---|
+| legitimate | 0.040 | 0.040 | 0.175 | 0.040 | 2.60 | 0.94 |
+| forgery | 0.500 | 0.040 | 0.175 | 0.040 | 2.60 | 0.94 |
+| impersonation | 0.500 | 0.500 | 0.500 | 0.500 | 0 | 0.25 |
+| replay | 0.109 | 0.500 | 0.500 | 0.500 | 0 | 0.25 |
+| channel manipulation | 0.347 | 0.347 | 0.392 | 0.347 | 0.87 | 0.48 |
+
+Why keep both shared-pair types: a Werner pair has `|⟨P ⊗ P⟩| = v` for every aligned `P`, but only `v/√2` for the ±45° CHSH settings. The aligned measurement therefore separates the hypotheses further per round (honest mismatch `(1−v)/2 = 0.04` against `(1−v/√2)/2 = 0.175`), while the ±45° settings are precisely the ones that maximise the Bell *violation* and so are the ones that can certify non-locality. `SessionConfig.round_mix` sets the split.
 
 ## 3. Unified detector (GLRT)
 
@@ -164,15 +171,18 @@ So the verifier may stop at the first `t` with `E_t ≥ 1/α`, which is the *ala
 
 ## 5. CHSH pre-check
 
-`Ŝ = Σ σ_ab (1 − 2k_ab/n_ab)`. Each `Ê_ab` is a mean of ±1 variables. Hoeffding plus a union bound over the four settings gives the half-width
+`Ŝ = Σ σ_ab (1 − 2k_ab/n_ab)`. Rather than bounding each `Ê_ab` separately and adding four half-widths under a union bound, note that `Ŝ − S` is a *single* sum of independent zero-mean terms — one per sampled round, each of the form `(σ_ab/n_ab)(X_i − E X_i)` with `X_i ∈ {−1,+1}` and hence of range `2/n_ab`. One application of Hoeffding to the whole linear combination gives
 
 ```
-|Ŝ − S| ≤ Σ_ab √(2 ln(8/δ) / n_ab)    with probability ≥ 1 − δ
+P(|Ŝ − S| ≥ t) ≤ 2 exp(−t² / (2 Σ_ab 1/n_ab))
+⇒  halfwidth(δ) = √(2 ln(2/δ) · Σ_ab 1/n_ab)
 ```
+
+At equal counts this is ≈2.35× tighter than the union-bound form `Σ_ab √(2 ln(8/δ)/n_ab)`. Half-widths scale as `1/√m`, so the saving in *rounds* is the square, ≈5.5×: certifying at `v = 0.92, δ = 0.05` needs ≈328 CHSH rounds instead of ≈1792. `tests/test_chsh_bound.py` verifies the coverage by Monte Carlo (realised miss rate ≈0.002 against the 0.05 budget — Hoeffding remains conservative here because it ignores the binomial variance).
 
 Two decisions follow:
 
-- **Flag** the session if `Ŝ < 2`, the local bound. Intercept-resend cannot exceed it.
+- **Flag** the session if `Ŝ < 2`, the local bound. Intercept-resend cannot exceed it. This uses the point estimate, so it needs enough rounds to be quiet on an honest channel: below ≈140 CHSH rounds the false-alarm rate exceeds 1%, which is the floor on the CHSH weight in `round_mix`.
 - **Certify** a Bell violation if `Ŝ − halfwidth > 2`.
 
 ## 6. Information-theoretic limits
@@ -191,7 +201,30 @@ The single-round **Helstrom** error is `½ − ¼‖ρ_0 − ρ_h‖₁`. The **
 
 The best achievable error over `N` rounds decays as `exp(−N ξ_Q)`. The classical Chernoff information `ξ_M` of ARBITER's actual measurement outcomes satisfies `ξ_M ≤ ξ_Q`. The ratio `ξ_M/ξ_Q` is reported as the measurement efficiency (`detection/bounds.py`).
 
-**Result:** the forgery efficiency is exactly 1. The legitimate and forged signature states commute, since `Δ_v(Π_s)` and `I/2` are both diagonal in the key basis, so the PS's projective Pauli measurement is Helstrom-optimal. `test_projective_pauli_measurement_is_helstrom_optimal` confirms this against the min-error SDP.
+Because the blocks are diagonal, `ρ^s = ⊕_t p_t^s ρ_{h,t}^s` and therefore
+
+```
+Tr(ρ_0^s ρ_h^{1−s}) = Σ_t p_t Tr(ρ_{0,t}^s ρ_{h,t}^{1−s})
+```
+
+so both exponents decompose per round type over a *shared* `s`. Decomposing that way localises the whole efficiency deficit: the signature and freshness blocks are exactly 100% efficient, and all of the loss sits in the shared-pair block.
+
+### 6.1 Why ξ_Q is the wrong yardstick, and ξ_L is the right one
+
+Both hypotheses' shared-pair states are Bell-diagonal, so they share the Bell basis as a common eigenbasis and a **Bell-basis measurement attains `ξ_Q` exactly** (verified numerically to ratio 1.0000). That measurement is non-local: it requires the signer's half and the verifier's half in the same place. A distributed signature protocol cannot do it, so `ξ_Q` is unreachable by construction and `ξ_M/ξ_Q` is pessimistic by a constant factor no design choice can recover.
+
+Restricting to **local** (product) measurements plus classical comparison, a Werner pair gives `⟨σ_a ⊗ σ_b⟩ = v(a_x b_x − a_y b_y + a_z b_z)`, whose magnitude is maximised at `v` by any aligned pair — i.e. exactly the Bell-fidelity settings. A 40-restart numerical search over all local directions `(a, b)` finds nothing better, and recording both outcome bits instead of their parity adds no information (for Bell-diagonal states the parity is a sufficient statistic, since the marginals are uniform). So:
+
+```
+ξ_L = exponent of the best local measurement   (achievable)
+ξ_M ≤ ξ_L ≤ ξ_Q
+```
+
+`local_efficiency = ξ_M/ξ_L` is the actionable number, and it reaches 1.0 when the shared-pair budget is spent on Bell-fidelity rather than CHSH rounds. At `v = 0.92` the local-vs-non-local separation is `ξ_L/ξ_Q ≈ 0.51` for impersonation/replay and `≈0.58` for channel manipulation — the irreducible cost of keeping the parties apart.
+
+Note that `ξ_Q` is invariant to how the shared-pair budget splits between CHSH and Bell-fidelity rounds, since both hold the same physical pair; only `ξ_M` moves. That keeps the comparison fair.
+
+**Result:** the forgery efficiency is exactly 1 against *both* yardsticks. The legitimate and forged signature states commute, since `Δ_v(Π_s)` and `I/2` are both diagonal in the key basis, so the PS's projective Pauli measurement is Helstrom-optimal. `test_projective_pauli_measurement_is_helstrom_optimal` confirms this against the min-error SDP.
 
 ## 7. Audit ledger
 

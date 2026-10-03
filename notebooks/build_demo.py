@@ -25,22 +25,28 @@ cells = [
     code(
         "import numpy as np\nimport matplotlib.pyplot as plt\n\n"
         "from arbiter.qds_simulation import ATTACKS, CELLS, ChannelParams, Hypothesis, SessionConfig, "
-        "cell_probabilities, expected_chsh, simulate_session\n"
+        "cell_probabilities, expected_bell_fidelity, expected_chsh, simulate_session\n"
         "from arbiter.detection import SequentialDetector, UnifiedDetector, attack_bounds\n"
         "from arbiter.pipeline import Arbiter\n\nparams = ChannelParams()\nparams"
     ),
     md(
         "## 1. Attack fingerprints\n\n"
-        "Each hypothesis induces different outcome probabilities in the six observation cells. The detector's "
-        "likelihoods come from density matrices through the Born rule, not from tuned constants."
+        "Each hypothesis induces different outcome probabilities across the observation cells: signature and "
+        "freshness mismatches, four CHSH settings, and three aligned Bell-fidelity settings. The detector's "
+        "likelihoods come from density matrices through the Born rule, not from tuned constants.\n\n"
+        "Note how much lower the honest mismatch rate is on the aligned `bell_*` cells than on the `chsh*` "
+        "cells: the +-45 degree CHSH settings maximise the Bell *violation* and pay a factor sqrt(2) in "
+        "correlator magnitude, which is exactly the information the Bell-fidelity rounds recover."
     ),
     code(
         "fig, ax = plt.subplots(figsize=(9, 3.5))\nw = 0.16\n"
         "for i, h in enumerate(Hypothesis):\n"
-        "    ax.bar(np.arange(6) + (i - 2) * w, cell_probabilities(h, 1.0, params), w, label=h.value)\n"
-        "ax.set_xticks(range(6), CELLS); ax.set_ylabel('P(outcome = 1)'); ax.legend(fontsize=8, ncol=5)\n"
+        "    ax.bar(np.arange(len(CELLS)) + (i - 2) * w, cell_probabilities(h, 1.0, params), w, label=h.value)\n"
+        "ax.set_xticks(range(len(CELLS)), CELLS, rotation=30, ha='right')\n"
+        "ax.set_ylabel('P(outcome = 1)'); ax.legend(fontsize=8, ncol=5)\n"
         "ax.set_title('Per-cell outcome probabilities at full attack strength'); plt.tight_layout()\n"
-        "{h.value: round(expected_chsh(h, 1.0, params), 3) for h in Hypothesis}"
+        "{h.value: {'S': round(expected_chsh(h, 1.0, params), 3),\n"
+        "           'F': round(expected_bell_fidelity(h, 1.0, params), 3)} for h in Hypothesis}"
     ),
     md(
         "## 2. One session on real Qiskit circuits\n\n"
@@ -79,12 +85,18 @@ cells = [
     ),
     md(
         "## 5. Information-theoretic limits\n\n"
-        "The quantum Chernoff exponent bounds every possible measurement. For forgery, ARBITER's projective "
-        "Pauli measurement reaches it exactly."
+        "The quantum Chernoff exponent `xi_quantum` bounds every possible measurement. For forgery, ARBITER's "
+        "projective Pauli measurement reaches it exactly.\n\n"
+        "For the attacks that show up on the shared pair, `xi_quantum` is **not reachable**: it is attained by a "
+        "Bell-basis measurement, which is non-local and would require the signer's and verifier's halves to be "
+        "in the same place. `xi_local` is the ceiling for local measurements plus classical comparison, so "
+        "`local_efficiency` is the ratio that can actually be acted on -- and the Bell-fidelity rounds are what "
+        "push it toward 1."
     ),
     code(
         "import pandas as pd\npd.DataFrame(attack_bounds(1.0)).set_index('attack')"
-        "[['helstrom_error_single_round', 'quantum_chernoff', 'measured_chernoff', 'measurement_efficiency']]"
+        "[['helstrom_error_single_round', 'quantum_chernoff', 'local_chernoff', 'measured_chernoff',\n"
+        "  'local_efficiency', 'measurement_efficiency']]"
         ".round(4)"
     ),
     md("## 6. Tamper-evident audit ledger"),

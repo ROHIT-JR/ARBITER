@@ -14,6 +14,7 @@ from arbiter.audit_ledger import AuditLedger, LedgerKeys, verify_entries
 from arbiter.detection import UnifiedDetector
 from arbiter.pki_risk_scoring import assess_key
 from arbiter.qds_simulation import ChannelParams, Hypothesis, cell_probabilities
+from arbiter.qds_simulation.model import CELLS
 from arbiter.quantum.info import fidelity, helstrom_error, quantum_chernoff, relative_entropy, trace_distance
 from arbiter.quantum.states import depolarize, measure_resend
 
@@ -88,7 +89,7 @@ def test_model_probabilities_are_valid_and_zero_attack_is_legitimate(visibility,
 
 @st.composite
 def count_vectors(draw):
-    n = draw(st.lists(st.integers(0, 30), min_size=6, max_size=6))
+    n = draw(st.lists(st.integers(0, 30), min_size=len(CELLS), max_size=len(CELLS)))
     k = [draw(st.integers(0, count)) for count in n]
     return np.asarray(n), np.asarray(k)
 
