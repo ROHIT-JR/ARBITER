@@ -1,15 +1,34 @@
 """Physical model of the teleportation-based QDS session and its attacks.
 
-A session interleaves three kinds of rounds, chosen at random by the verifier
+A session interleaves four kinds of rounds, chosen at random by the verifier
 so an adversary cannot tell them apart in advance:
 
-* ``SIGNATURE``  -- the signer teleports a Pauli eigenstate selected by her
+* ``SIGNATURE``      -- the signer teleports a Pauli eigenstate selected by her
   private key; the verifier applies the Pauli correction and measures in that
   eigenstate's basis. Outcome = mismatch bit.
-* ``FRESHNESS``  -- same, but the eigenstate is derived from the verifier's
+* ``FRESHNESS``      -- same, but the eigenstate is derived from the verifier's
   per-session QRNG nonce (public challenge). Outcome = mismatch bit.
-* ``CHSH``       -- signer and verifier measure their halves of a Bell pair in
-  random CHSH settings. Outcome = parity of the two +-1 results.
+* ``CHSH``           -- signer and verifier measure their halves of a Bell pair
+  in random CHSH settings (+-45 degrees). Outcome = parity of the two +-1
+  results. These rounds certify a Bell violation *device-independently*.
+* ``BELL_FIDELITY``  -- both parties measure the same Pauli on their halves,
+  drawn from {ZZ, XX, YY}. Outcome = parity against the ``|Phi+>`` stabiliser
+  signs (+, +, -). These rounds are device-*dependent* but extract strictly
+  more information per round (see below), so the two types are complementary
+  and the mix is configurable via ``SessionConfig.round_mix``.
+
+Why both: CHSH settings sit at +-45 degrees to maximise the Bell *violation*,
+which costs a factor sqrt(2) in correlator magnitude (v/sqrt(2) rather than v)
+and therefore wastes distinguishing power. Measuring the ``|Phi+>`` stabilisers
+instead is the optimal *local* measurement on a Werner pair: for visibility
+``v`` every one of ZZ/XX/YY has correlator magnitude ``v``, giving mismatch
+rate ``(1-v)/2``. A numerical search over all local measurement directions
+finds nothing better, and recording both outcome bits rather than their parity
+adds no information (the parity is a sufficient statistic for Bell-diagonal
+states). The residual gap to the *unconstrained* quantum Chernoff bound is the
+local-vs-non-local separation: saturating it needs a joint Bell-basis
+measurement, i.e. co-locating the two halves, which a distributed signature
+protocol cannot do. See ``arbiter.detection.bounds`` for both yardsticks.
 
 Each hypothesis is a (possibly partial, strength ``theta``) replacement of the
 per-round quantum state. The verifier's outcome probabilities are computed
@@ -32,6 +51,7 @@ from arbiter.quantum.states import (
     MAXIMALLY_MIXED,
     PauliLabel,
     X,
+    Y,
     Z,
     apply_on_second,
     depolarize,
@@ -65,6 +85,7 @@ class RoundType(str, Enum):
     SIGNATURE = "signature"
     FRESHNESS = "freshness"
     CHSH = "chsh"
+    BELL_FIDELITY = "bell_fidelity"
 
 
 # The four BB84 states used for the quantum-public-key distribution phase.
@@ -82,13 +103,33 @@ BB84_LABELS = (
 
 # Observation "cells": each is a Bernoulli outcome the detector counts.
 CHSH_SETTINGS = ((0, 0), (0, 1), (1, 0), (1, 1))
-CELLS = ("signature", "freshness", "chsh00", "chsh01", "chsh10", "chsh11")
+# Bell-fidelity settings: both parties measure the *same* Pauli. The signs are
+# the ``|Phi+>`` stabiliser eigenvalues (ZZ = +1, XX = +1, YY = -1), so the
+# recorded bit is 1 exactly when the observed parity contradicts |Phi+>.
+BELL_FIDELITY_BASES = ("Z", "X", "Y")
+BELL_FIDELITY_SIGNS = np.array([1, 1, -1])
+CELLS = (
+    "signature",
+    "freshness",
+    "chsh00",
+    "chsh01",
+    "chsh10",
+    "chsh11",
+    "bell_zz",
+    "bell_xx",
+    "bell_yy",
+)
+# Index ranges into CELLS, so slicing stays correct as cells are added.
+CHSH_CELLS = slice(2, 6)
+BELL_FIDELITY_CELLS = slice(6, 9)
 CHSH_SIGNS = np.array([1, 1, 1, -1])  # S = E00 + E01 + E10 - E11
 
 _B0 = (Z + X) / np.sqrt(2)
 _B1 = (Z - X) / np.sqrt(2)
 ALICE_OBS = (Z, X)
 BOB_OBS = (_B0, _B1)
+# Aligned single-qubit observables for the Bell-fidelity rounds.
+BELL_FIDELITY_OBS = {"Z": Z, "X": X, "Y": Y}
 
 
 @dataclass(frozen=True)
@@ -236,6 +277,24 @@ def chsh_correlator(rho_ab: np.ndarray, a: int, b: int) -> float:
     return float(np.real(np.trace(np.kron(ALICE_OBS[a], BOB_OBS[b]) @ rho_ab)))
 
 
+def bell_fidelity_correlator(rho_ab: np.ndarray, basis: str) -> float:
+    """``<P (x) P>`` for the aligned Pauli ``basis`` in {Z, X, Y}.
+
+    On a Werner pair of visibility ``v`` this is ``+v`` for ZZ and XX and
+    ``-v`` for YY -- the ``|Phi+>`` stabiliser structure.
+    """
+    if basis not in BELL_FIDELITY_OBS:
+        raise ValueError(f"unknown Bell-fidelity basis {basis!r}; choose from {BELL_FIDELITY_BASES}")
+    obs = BELL_FIDELITY_OBS[basis]
+    return float(np.real(np.trace(np.kron(obs, obs) @ rho_ab)))
+
+
+def bell_fidelity_mismatch_probability(rho_ab: np.ndarray, basis: str) -> float:
+    """P(measured parity contradicts |Phi+>) for one Bell-fidelity setting."""
+    sign = BELL_FIDELITY_SIGNS[BELL_FIDELITY_BASES.index(basis)]
+    return (1 - sign * bell_fidelity_correlator(rho_ab, basis)) / 2
+
+
 def _normalise_protocol(protocol: str) -> str:
     if protocol not in PROTOCOLS:
         raise ValueError(f"unknown protocol {protocol!r}; choose from {sorted(PROTOCOLS)}")
@@ -285,6 +344,10 @@ def _attack_cell_probs(h: Hypothesis, params: ChannelParams, protocol: str = "pr
     rho = chsh_state(h, params)
     for (a, b), sign in zip(CHSH_SETTINGS, CHSH_SIGNS, strict=True):
         probs.append((1 - sign * chsh_correlator(rho, a, b)) / 2)
+    # Bell-fidelity rounds measure the *same* shared pair as the CHSH rounds,
+    # only with aligned settings, so they reuse ``rho`` unchanged.
+    for basis in BELL_FIDELITY_BASES:
+        probs.append(bell_fidelity_mismatch_probability(rho, basis))
     return tuple(probs)
 
 
@@ -299,21 +362,48 @@ def cell_probabilities(h: Hypothesis, theta: float, params: ChannelParams, proto
 
 
 def expected_chsh(h: Hypothesis, theta: float, params: ChannelParams, protocol: str = "prf") -> float:
-    p = cell_probabilities(h, theta, params, protocol)[2:]
+    # Only the four CHSH cells enter S; the Bell-fidelity cells measure the
+    # same pair but in aligned bases and must not be folded in here.
+    p = cell_probabilities(h, theta, params, protocol)[CHSH_CELLS]
     return float(np.sum(1 - 2 * p))
+
+
+def expected_bell_fidelity(h: Hypothesis, theta: float, params: ChannelParams, protocol: str = "prf") -> float:
+    """Fidelity with ``|Phi+>`` implied by the three aligned-stabiliser means.
+
+    ``F = (1 + <ZZ> + <XX> - <YY>) / 4``, so an ideal Bell pair gives 1 and a
+    Werner pair of visibility ``v`` gives ``(1 + 3v) / 4``.
+    """
+    p = cell_probabilities(h, theta, params, protocol)[BELL_FIDELITY_CELLS]
+    # Each cell reports P(parity contradicts |Phi+>), i.e. (1 - sign*corr)/2,
+    # so sign*corr = 1 - 2p and the signed sum is what F needs.
+    signed = 1 - 2 * np.asarray(p)
+    return float((1 + np.sum(signed)) / 4)
 
 
 def _legit_cell_probabilities(v: float, protocol: str = "prf") -> np.ndarray:
     """Per-cell outcome-1 probabilities under H0 (legitimate) for given visibility v.
 
-    Cells: 0=signature, 1=freshness, 2=chsh00, 3=chsh01, 4=chsh10, 5=chsh11
+    Cells: 0=signature, 1=freshness, 2..5=chsh00/01/10/11, 6..8=bell_zz/xx/yy
     - signature, freshness: p = (1-v)/2
-    - CHSH (setting a,b with sign s): p = (1 - s*v/sqrt(2))/2
+    - CHSH: p = (1 - v/sqrt(2))/2  -- the *same* for all four settings
+    - Bell-fidelity: p = (1-v)/2   -- the same for all three bases
+
+    Every cell records a *mismatch* bit, i.e. ``(1 - s*corr)/2`` where ``s`` is
+    the cell's ideal sign. The ideal correlator already carries that sign
+    (``corr = s*v/sqrt(2)`` for CHSH, ``s*v`` for the aligned stabilisers), so
+    ``s*corr`` is positive in every cell and the sign must not be applied a
+    second time here. Doing so inverted the chsh11 cell and biased
+    ``estimate_visibility`` low by ~0.024 at v = 0.92.
+
+    The Bell-fidelity cells carry the visibility at full strength (no 1/sqrt(2)
+    dilution), so including them sharpens the visibility estimate.
     """
     sqrt2 = np.sqrt(2)
     p_sf = (1 - v) / 2
-    p_chsh = (1 - CHSH_SIGNS * v / sqrt2) / 2
-    return np.array([p_sf, p_sf, *p_chsh])
+    p_chsh = np.full(len(CHSH_SIGNS), (1 - v / sqrt2) / 2)
+    p_bell = np.full(len(BELL_FIDELITY_BASES), (1 - v) / 2)
+    return np.array([p_sf, p_sf, *p_chsh, *p_bell])
 
 
 def _neg_log_likelihood(v: float, n: np.ndarray, k: np.ndarray, protocol: str = "prf") -> float:
@@ -332,11 +422,14 @@ def estimate_visibility(
 ) -> float:
     """MLE of Werner visibility v from per-cell counts under H0 (legitimate).
 
-    Maximizes the joint log-likelihood over all 6 cells:
+    Maximizes the joint log-likelihood over every cell:
     ℓ(v) = Σᵢ [kᵢ log pᵢ(v) + (nᵢ - kᵢ) log(1 - pᵢ(v))]
 
-    where p₀(v) = p₁(v) = (1-v)/2 (signature, freshness)
-    and pᵢ(v) = (1 - sᵢ v/√2)/2 for CHSH cells (i=2,3,4,5).
+    where the per-cell H0 probabilities are
+      signature, freshness: (1-v)/2
+      CHSH cells:           (1 - v/√2)/2
+      Bell-fidelity cells:  (1-v)/2   -- no 1/√2 dilution, so these sharpen
+                                         the estimate the most per round.
 
     Returns v in [0.5, 1.0] clipped. Falls back to params.visibility if optimization fails.
     """
@@ -345,6 +438,8 @@ def estimate_visibility(
 
     n = np.asarray(n, float)
     k = np.asarray(k, float)
+    if n.shape[-1] != len(CELLS) or k.shape[-1] != len(CELLS):
+        raise ValueError(f"expected {len(CELLS)} count cells ({', '.join(CELLS)}), got {n.shape[-1]}")
 
     if n.sum() == 0:
         return params.visibility

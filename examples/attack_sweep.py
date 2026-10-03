@@ -66,15 +66,18 @@ def main() -> None:
         print()
 
     print("=== information-theoretic limits (theta = 1, epsilon = 1e-6) ===")
+    # xi_local is the ceiling a *local* measurement can reach; xi_quantum needs
+    # a non-local Bell measurement, so xi_M/xi_L is the actionable ratio.
     print(
-        f"{'attack':22s}{'Helstrom/rnd':>13s}{'xi_quantum':>12s}{'xi_ARBITER':>12s}"
-        f"{'efficiency':>12s}{'N_quantum':>11s}{'N_ARBITER':>11s}"
+        f"{'attack':22s}{'Helstrom/rnd':>13s}{'xi_quantum':>12s}{'xi_local':>10s}"
+        f"{'xi_ARBITER':>12s}{'M/L':>7s}{'M/Q':>7s}{'N_local':>9s}{'N_ARBITER':>11s}"
     )
     for r in attack_bounds(1.0, config):
         print(
             f"{r['attack']:22s}{r['helstrom_error_single_round']:13.3f}{r['quantum_chernoff']:12.4f}"
-            f"{r['measured_chernoff']:12.4f}{r['measurement_efficiency']:12.2f}"
-            f"{r['rounds_for_epsilon_quantum']:11.0f}{r['rounds_for_epsilon_measured']:11.0f}"
+            f"{r['local_chernoff']:10.4f}{r['measured_chernoff']:12.4f}"
+            f"{r['local_efficiency']:7.2f}{r['measurement_efficiency']:7.2f}"
+            f"{r['rounds_for_epsilon_local']:9.0f}{r['rounds_for_epsilon_measured']:11.0f}"
         )
 
 

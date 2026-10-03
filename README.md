@@ -59,20 +59,37 @@ The following table is generated with `python examples/security_bounds.py`.
 
 **The limits of what any detector could do:**
 
-| attack | quantum Chernoff ξ_Q | ARBITER's measurement ξ_M | efficiency |
-|---|---|---|---|
-| forgery | 0.0885 | 0.0885 | **1.00** (the PS's projective Pauli measurement is Helstrom-optimal) |
-| impersonation | 0.227 | 0.154 | 0.68 |
-| replay | 0.132 | 0.064 | 0.49 |
-| channel manipulation | 0.114 | 0.080 | 0.70 |
+| attack | ξ_Q (non-local) | ξ_L (best local) | ARBITER's ξ_M | ξ_M/ξ_L | ξ_M/ξ_Q |
+|---|---:|---:|---:|---:|---:|
+| forgery | 0.0885 | 0.0885 | 0.0885 | **1.00** | **1.00** |
+| impersonation | 0.244 | 0.186 | 0.170 | 0.92 | 0.70 |
+| replay | 0.147 | 0.093 | 0.079 | 0.85 | 0.54 |
+| channel manipulation | 0.121 | 0.097 | 0.088 | 0.92 | 0.73 |
 
-Efficiencies below 1 come from the fixed CHSH settings. That gap is the most concrete open item for the next version.
+Two yardsticks, because **ξ_Q is not physically reachable.** On the shared-pair rounds ξ_Q is attained *exactly* by a
+Bell-basis measurement — the common eigenbasis of the Bell-diagonal states involved — and that measurement is
+non-local: it needs the signer's half and the verifier's half in the same place, which defeats the purpose of a
+distributed signature protocol. A numerical search over all local measurement directions puts the achievable ceiling
+at ξ_L, roughly half of ξ_Q. **ξ_M/ξ_L is therefore the actionable number.**
+
+Closing that gap is what **Bell-fidelity rounds** do: both parties measure the *same* Pauli from {ZZ, XX, YY} and
+record the parity against |Φ⁺⟩'s stabiliser signs (+, +, −). Because the settings are aligned each correlator keeps the
+full visibility *v*, instead of losing a factor √2 to the ±45° CHSH settings — provably the optimal local measurement
+on a Werner pair, and recording both outcome bits rather than their parity adds nothing. CHSH rounds are kept
+regardless, since only they certify a Bell violation *device-independently*.
+
+The default `round_mix` is `(0.50, 0.15, 0.12, 0.23)`, a Pareto improvement on the legacy `(0.5, 0.25, 0.25)`: no
+attack is detected worse, and the bottleneck attack (replay) needs **215 → 174 rounds** (−19%) at ε = 10⁻⁶. Re-derive
+it with `python examples/optimise_round_mix.py`. A legacy 3-tuple `round_mix` is still accepted and zero-pads the
+Bell-fidelity weight, so existing configurations keep their exact behaviour.
 
 ## vs. fixed thresholds
 
 `BaselineDetector` implements four independent rules in fixed priority order: signature mismatch, freshness mismatch,
-CHSH S, then the joint signature-and-freshness rule. Its thresholds are calibrated under legitimate traffic so the
-*overall* false-alarm rate, not each rule's rate, is α. A conventional Bonferroni variant uses α/4 per rule.
+channel integrity, then the joint signature-and-freshness rule. The channel-integrity rule screens both shared-pair
+witnesses (CHSH S and Bell fidelity), so the baseline sees every round the unified detector does and the comparison
+stays fair. Its thresholds are calibrated under legitimate traffic so the *overall* false-alarm rate, not each rule's
+rate, is α. A conventional Bonferroni variant splits α over the five marginal tests.
 
 The table below was generated with
 `python examples/compare_baseline.py --sessions 1000 --seed 26141` (1200 balanced rounds/session, α = 0.01).
@@ -231,7 +248,7 @@ tests/                per-attack fixtures, circuit/model agreement, false-alarm 
 | version | scope |
 |---|---|
 | **v0.1** (this) | QDS simulation (analytic + Qiskit), unified GLRT, sequential test, CHSH, freshness, bounds, dual-signed ledger, trapped-ion error budget, PKI risk scoring, API, dashboard, notebook, CI |
-| v0.2 | optimized CHSH-round measurements (close the efficiency gap), estimating the channel visibility per session as a nuisance parameter, ledger key rotation |
+| v0.2 | Bell-fidelity rounds and an optimised round mix (closes the gap to the *local* measurement optimum), tightened CHSH confidence bound, estimating the channel visibility per session as a nuisance parameter, ledger key rotation |
 | v0.3 | coherent and correlated trapped-ion errors, hybrid-certificate support in PKI scoring, robust tests against adaptive attacks |
 | v1.0 | calibration against real trapped-ion hardware data (collaborators welcome), technical report |
 

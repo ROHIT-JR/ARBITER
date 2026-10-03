@@ -56,6 +56,21 @@ class ChshSpec:
     signer_uncorrelated: bool = False  # impersonation / replayed outcomes
 
 
+@dataclass(frozen=True)
+class BellFidelitySpec:
+    """Both parties measure the *same* Pauli on their half of the pair.
+
+    ``basis`` is one of Z/X/Y. Unlike the CHSH settings these are aligned, so
+    the correlator keeps the full visibility instead of losing a factor
+    sqrt(2) -- this is the optimal local measurement on a Werner pair.
+    """
+
+    basis: str
+    visibility: float
+    intercept_basis: str | None = None
+    signer_uncorrelated: bool = False  # impersonation / replayed outcomes
+
+
 def _prepare(qc: QuantumCircuit, q, label: PauliLabel) -> None:
     if label.bit:
         qc.x(q)
@@ -169,6 +184,34 @@ def chsh_circuit(spec: ChshSpec) -> QuantumCircuit:
     elif spec.a == 1:
         qc.h(alice)
     qc.ry(-np.pi / 4 if spec.b == 0 else np.pi / 4, q[2])
+    qc.measure(alice, ab[0])
+    qc.measure(q[2], ab[1])
+    return qc
+
+
+def bell_fidelity_circuit(spec: BellFidelitySpec) -> QuantumCircuit:
+    """Both parties measure ``spec.basis`` on their half; the parity is recorded.
+
+    For ``|Phi+>`` the aligned parities are deterministic -- ZZ and XX agree,
+    YY anti-agrees -- so the parity bit directly estimates the stabiliser
+    correlator. The protocol layer XORs in the expected sign.
+    """
+    if spec.basis not in ("Z", "X", "Y"):
+        raise ValueError(f"Bell-fidelity requires a Z/X/Y basis, got {spec.basis!r}")
+    q = QuantumRegister(3, "q")
+    scratch = ClassicalRegister(1, "scratch")
+    ab = ClassicalRegister(2, "ab")
+    qc = QuantumCircuit(q, scratch, ab)
+
+    _distribute_bell_pair(qc, q[1], q[2], spec.visibility, spec.intercept_basis, scratch[0])
+
+    alice = q[1]
+    if spec.signer_uncorrelated:
+        alice = q[0]
+        qc.h(alice)  # reported outcome is a fair coin, unrelated to q2
+    else:
+        _rotate_to_z(qc, alice, spec.basis)
+    _rotate_to_z(qc, q[2], spec.basis)
     qc.measure(alice, ab[0])
     qc.measure(q[2], ab[1])
     return qc

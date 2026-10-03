@@ -4,7 +4,13 @@ The baseline intentionally mirrors the common "one threshold per symptom"
 design.  It does not combine evidence: rules are checked in a fixed order and
 the first firing rule supplies the attribution.  The default thresholds are
 jointly calibrated under H0 so the *family-wise* false-alarm rate is ``alpha``.
-Set ``bonferroni=True`` for the conventional ``alpha / 4`` per-rule variant.
+Set ``bonferroni=True`` for the conventional per-test split of ``alpha``.
+
+Four rules back the four attacks, but the channel-manipulation rule screens
+*both* shared-pair witnesses -- CHSH S and the Bell fidelity -- so that the
+baseline sees every round the unified detector does and the head-to-head
+comparison stays fair. That makes five marginal tests, which is what the
+Bonferroni variant divides by.
 """
 
 from __future__ import annotations
@@ -14,8 +20,18 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from arbiter.qds_simulation.model import ATTACKS, CELLS, ChannelParams, Hypothesis, cell_probabilities
-from arbiter.qds_simulation.protocol import Transcript
+from arbiter.qds_simulation.model import (
+    ATTACKS,
+    BELL_FIDELITY_BASES,
+    BELL_FIDELITY_CELLS,
+    CELLS,
+    CHSH_CELLS,
+    CHSH_SETTINGS,
+    ChannelParams,
+    Hypothesis,
+    cell_probabilities,
+)
+from arbiter.qds_simulation.protocol import DEFAULT_ROUND_MIX, Transcript, _normalise_round_mix
 
 RULE_PRIORITY = (
     Hypothesis.FORGERY,
@@ -25,13 +41,26 @@ RULE_PRIORITY = (
 )
 
 
-def balanced_cell_counts(n_rounds: int, round_mix: tuple[float, float, float] = (0.5, 0.25, 0.25)) -> np.ndarray:
-    """Allocate a session deterministically across signature/freshness/CHSH cells."""
+def balanced_cell_counts(n_rounds: int, round_mix: tuple[float, ...] = DEFAULT_ROUND_MIX) -> np.ndarray:
+    """Allocate a session deterministically across every observation cell.
+
+    A round type may carry zero weight (e.g. the legacy 3-tuple mix leaves the
+    Bell-fidelity cells empty); its cells then simply receive no rounds.
+    """
     if n_rounds < len(CELLS):
         raise ValueError(f"n_rounds must be at least {len(CELLS)}")
-    weights = np.array([round_mix[0], round_mix[1], *(round_mix[2] / 4 for _ in range(4))], float)
-    if np.any(weights <= 0) or not np.isclose(weights.sum(), 1):
-        raise ValueError("round_mix must contain positive probabilities summing to one")
+    mix = _normalise_round_mix(round_mix)
+    weights = np.array(
+        [
+            mix[0],
+            mix[1],
+            *(mix[2] / len(CHSH_SETTINGS) for _ in range(len(CHSH_SETTINGS))),
+            *(mix[3] / len(BELL_FIDELITY_BASES) for _ in range(len(BELL_FIDELITY_BASES))),
+        ],
+        float,
+    )
+    if np.any(weights < 0) or not np.isclose(weights.sum(), 1):
+        raise ValueError("round_mix must contain non-negative probabilities summing to one")
     exact = n_rounds * weights
     counts = np.floor(exact).astype(int)
     order = np.argsort(-(exact - counts), kind="stable")
@@ -44,6 +73,7 @@ class BaselineThresholds:
     forgery: float
     replay: float
     channel_manipulation: float
+    bell_fidelity: float
     impersonation: float
     per_rule_alpha: float
     calibration_false_alarm_rate: float
@@ -84,7 +114,7 @@ class BaselineDetector:
         params: ChannelParams | None = None,
         alpha: float = 0.01,
         n_rounds: int = 1200,
-        round_mix: tuple[float, float, float] = (0.5, 0.25, 0.25),
+        round_mix: tuple[float, ...] = DEFAULT_ROUND_MIX,
         n_calibration: int = 50_000,
         seed: int | None = 0,
         *,
@@ -104,35 +134,55 @@ class BaselineDetector:
         self.thresholds = self._calibrate()
 
     @staticmethod
-    def _metrics(n: np.ndarray, k: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def _metrics(n: np.ndarray, k: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         n = np.asarray(n, float)
         k = np.asarray(k, float)
         signature = np.divide(k[..., 0], n[..., 0], out=np.zeros_like(k[..., 0]), where=n[..., 0] > 0)
         freshness = np.divide(k[..., 1], n[..., 1], out=np.zeros_like(k[..., 1]), where=n[..., 1] > 0)
-        chsh_rates = np.divide(k[..., 2:], n[..., 2:], out=np.full_like(k[..., 2:], np.inf), where=n[..., 2:] > 0)
+        # Slice the CHSH cells by name: an open-ended [..., 2:] would fold the
+        # Bell-fidelity cells into S and inflate it past the Tsirelson bound.
+        nc, kc = n[..., CHSH_CELLS], k[..., CHSH_CELLS]
+        chsh_rates = np.divide(kc, nc, out=np.full_like(kc, np.inf), where=nc > 0)
         chsh_s = np.sum(1 - 2 * chsh_rates, axis=-1)
+        # Bell-fidelity witness: F = (1 + <ZZ> + <XX> - <YY>)/4, with each
+        # signed correlator recovered as 1 - 2*rate. Empty cells must not fire
+        # the rule, so an unmeasured witness reports the ideal value 1.
+        nb, kb = n[..., BELL_FIDELITY_CELLS], k[..., BELL_FIDELITY_CELLS]
+        bell_rates = np.divide(kb, nb, out=np.zeros_like(kb), where=nb > 0)
+        bell_fidelity = (1 + np.sum(1 - 2 * bell_rates, axis=-1)) / 4
+        measured = np.all(nb > 0, axis=-1)
+        bell_fidelity = np.where(measured, bell_fidelity, 1.0)
         impersonation = np.minimum(signature, freshness)
-        return signature, freshness, chsh_s, impersonation
+        return signature, freshness, chsh_s, bell_fidelity, impersonation
 
     @staticmethod
     def _thresholds_for(metrics: tuple[np.ndarray, ...], tail_probability: float) -> tuple[float, ...]:
-        signature, freshness, chsh_s, impersonation = metrics
+        signature, freshness, chsh_s, bell_fidelity, impersonation = metrics
         return (
             float(np.quantile(signature, 1 - tail_probability, method="higher")),
             float(np.quantile(freshness, 1 - tail_probability, method="higher")),
             float(np.quantile(chsh_s, tail_probability, method="lower")),
+            float(np.quantile(bell_fidelity, tail_probability, method="lower")),
             float(np.quantile(impersonation, 1 - tail_probability, method="higher")),
         )
 
     @staticmethod
     def _rule_matrix(metrics: tuple[np.ndarray, ...], thresholds: tuple[float, ...]) -> np.ndarray:
-        signature, freshness, chsh_s, impersonation = metrics
-        forgery_tau, replay_tau, channel_tau, impersonation_tau = thresholds
+        """Four rules for four attacks, in ``RULE_PRIORITY`` order.
+
+        Channel manipulation shows up in both shared-pair witnesses, so that
+        rule is the disjunction of the two: a low CHSH S (device-independent)
+        or a low Bell fidelity. Keeping it one column preserves the four-rule
+        structure, and the joint calibration below absorbs the extra test when
+        it picks the common tail probability.
+        """
+        signature, freshness, chsh_s, bell_fidelity, impersonation = metrics
+        forgery_tau, replay_tau, channel_tau, bell_tau, impersonation_tau = thresholds
         return np.column_stack(
             (
                 signature > forgery_tau,
                 freshness > replay_tau,
-                chsh_s < channel_tau,
+                (chsh_s < channel_tau) | (bell_fidelity < bell_tau),
                 impersonation > impersonation_tau,
             )
         )
@@ -145,7 +195,10 @@ class BaselineDetector:
         metrics = self._metrics(n, k)
 
         if self.bonferroni:
-            per_rule_alpha = self.alpha / 4
+            # Split over the number of marginal *tests*, not rules: the channel
+            # rule screens both shared-pair witnesses, so alpha/4 would exceed
+            # the family-wise budget.
+            per_rule_alpha = self.alpha / len(self._thresholds_for(metrics, self.alpha))
         else:
             # Find the least-conservative common marginal tail probability
             # whose four-rule union still has empirical size <= alpha.
@@ -170,6 +223,7 @@ class BaselineDetector:
             self.thresholds.forgery,
             self.thresholds.replay,
             self.thresholds.channel_manipulation,
+            self.thresholds.bell_fidelity,
             self.thresholds.impersonation,
         )
         fired = self._rule_matrix(tuple(np.array(x) for x in values), taus)[0]
@@ -183,7 +237,8 @@ class BaselineDetector:
                 "signature_mismatch_rate": values[0],
                 "freshness_mismatch_rate": values[1],
                 "chsh_s": values[2],
-                "impersonation_joint_rate": values[3],
+                "bell_fidelity": values[3],
+                "impersonation_joint_rate": values[4],
             },
             thresholds=self.thresholds,
         )
