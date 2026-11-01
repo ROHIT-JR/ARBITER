@@ -127,7 +127,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run test:unit:run -- --coverage
-      - uses: codecov/codecov-action@v4
+      - uses: codecov/codecov-action@v7
         if: always()
 
   frontend-e2e:
